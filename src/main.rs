@@ -26,6 +26,7 @@ use serenity::prelude::*;
 use tracing::{error, info};
 
 use crate::commands::project::*;
+use crate::commands::member::*;
 
 pub struct ShardManagerContainer;
 
@@ -47,7 +48,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(project)]
+#[commands(project, member)]
 struct General;
 
 #[tokio::main]
