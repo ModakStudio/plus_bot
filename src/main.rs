@@ -98,7 +98,7 @@ async fn main() {
         .expect("Err creating client");
 
     let shared_cache = Arc::new(RwLock::new(cache::BotCache {
-        all_members: Vec::new(),
+        all_members: HashMap::new(),
         project_mapping: HashMap::new(),
     }));
 
