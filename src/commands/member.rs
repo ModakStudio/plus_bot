@@ -6,7 +6,6 @@ use serenity::model::{prelude::*};
 use serenity::prelude::*;
 
 use crate::cache::CacheNotifyKey;
-use crate::cache;
 
 // 앞으로 해야할거
 // 추후 개발방향: 노션에 연동해서 프로젝트 참여 인원 확인 하기
@@ -19,7 +18,7 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let channel = msg.channel_id.to_channel(&ctx.http).await?.guild().unwrap();
     
     //명령어가 카테고리에 속해있는 채널에서 입력된건지 확인
-    let mut project_name:String = String::new();
+    let project_name:String;
     match channel.parent_id {
         Some(category_id) => {
             let category_channel = category_id.to_channel(&ctx.http).await?.guild().unwrap();
@@ -65,7 +64,7 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             }
 
             // 결과 출력
-            let mut content = String::from("사용법: `~member <add | remove> [@유저들]`\n\n");
+            let mut content = String::from("사용법: `/member <add | remove> [@유저들]`\n\n");
             content.push_str("`미참여 인원`\n");
             for mem in excluded_mems { content.push_str(&format!("{}\n", mem)); }
             content.push_str("`참여 인원`\n");
@@ -76,6 +75,7 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
     };
     
+    // 하위 커맨드 구현
     match subcommand.as_str() {
         "add" => {
             //서버 아이디 획득
@@ -152,7 +152,79 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             }
         },
         "remove" => {
-            // remove 기능 구현
+            //서버 아이디 획득
+            let guild_id = match msg.guild_id {
+                Some(id) => id,
+                None => return Ok(()),
+            };
+
+            // 역할 id 찾기
+            let mut target_role_id = None;
+            if let Ok(roles) = guild_id.roles(&ctx.http).await {
+                if let Some(role) = roles.values().find(|r| r.name == project_name) {
+                    target_role_id = Some(role.id);
+                }
+            }
+            let role_id = match target_role_id {
+                Some(id) => id,
+                None => {
+                    msg.reply(ctx, format!("❌ '{}' 이름의 프로젝트 역할을 찾을 수 없습니다.", project_name)).await?;
+                    return Ok(());
+                }
+            };
+
+            // 캐쉬에서 이미 참가중인 멤버 Id목록 가져오기
+            let mut already_members = HashSet::new();
+            if let Some(members) = cache.project_mapping.get(&project_name) {
+                already_members = members.clone();
+            }
+
+            // 그 뒤에 나오는 인자들을 전부 파싱 후 벡터에 저장
+            let mut removed_users = Vec::new();
+            for user_str_res in args.iter::<String>() {
+                match user_str_res {
+                    Ok(user_str) => {
+                        let clean_str = user_str
+                            .trim_start_matches("<@")
+                            .trim_start_matches('!')
+                            .trim_end_matches('>');
+
+                        if let Ok(id_num) = clean_str.parse::<u64>() {
+                            let user_id = UserId::new(id_num);
+
+                            // 프로젝트에 없는 사람은 건너뛰기
+                            if !already_members.contains(&user_id) {
+                                println!("이 유저는 원래 프로젝트 멤버가 아닙니다. 건너뜁니다.");
+                                continue;
+                            }
+
+                            match ctx.http.remove_member_role(guild_id, user_id, role_id, None).await {
+                                Ok(_) => { removed_users.push(user_id); }
+                                Err(why) => { println!("❌ [디스코드 API 에러] 역할 제거 실패: {:?}", why); }
+                            }
+                        }
+                        else {
+                            println!("⚠️ 숫자로 변환할 수 없는 올바르지 않은 유저 형식: {}", user_str);
+                        }
+                    }
+                    Err(_) => {
+                        println!("올바르지 않은 유저 형식은 건너뜁니다");
+                    }
+                }
+            }
+
+            if removed_users.is_empty() {
+                msg.reply(ctx, "❌ 올바른 유저 형식이 아니거나 내보낼 수 있는 유저가 없습니다").await?;
+            }
+            else {
+                let mentions: Vec<String> = removed_users.iter().map(|id| format!("<@{}>", id)).collect();
+                msg.reply(ctx, format!("❌ {} 님이 '{}' 프로젝트에서 내보내졌습니다", mentions.join(", "), project_name)).await?;
+
+                // 캐시 스레드 깨우기
+                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+                    let _ = tx.send(()).await;
+                }
+            }
         },
         _ => { //이외의 하위 명령어 입력 시
             msg.reply(ctx, "❌ 알 수 없는 하위 명령어입니다. (사용 가능: add, remove)").await?;
