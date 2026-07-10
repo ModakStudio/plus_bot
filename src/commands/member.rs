@@ -12,17 +12,20 @@ use crate::cache::CacheNotifyKey;
 
 #[command]
 async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    //let user = &msg.author;
-
     //명령어가 입력된 채널 정보 가져오기
     let channel = msg.channel_id.to_channel(&ctx.http).await?.guild().unwrap();
     
     //명령어가 카테고리에 속해있는 채널에서 입력된건지 확인
     let project_name:String;
+    // let pm_name:String;
     match channel.parent_id {
         Some(category_id) => {
             let category_channel = category_id.to_channel(&ctx.http).await?.guild().unwrap();
-            project_name = category_channel.name.clone();
+
+            // 카테고리 이름에서 프로젝트명과 PM명 추출
+            let category_name_parts: Vec<&str> = category_channel.name.split("(PM: ").collect();
+            project_name = category_name_parts[0].trim().to_string();
+            // pm_name = category_name_parts[1].trim().trim_end_matches(')').to_string();
         }
         None => {
             msg.reply(ctx, "❌ 이 명령어는 프로젝트 내에서만 사용 가능합니다").await?;
@@ -76,6 +79,34 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 Some(id) => id,
                 None => return Ok(()),
             };
+
+            let guild = guild_id.to_partial_guild(&ctx.http).await?;
+            let member = guild_id.member(&ctx.http, msg.author.id).await?;
+
+            // 명령어 사용자가 PM인지 확인
+            let is_pm = match cache.project_pms.get(&project_name) {
+                Some(pm_id) => *pm_id == msg.author.id,
+                None => false,
+            };
+
+            // 명령어 사용자가 관리자 권한인지 확인
+            let mut is_admin = guild.owner_id == msg.author.id;
+            if !is_admin {
+                for role_id in &member.roles {
+                    if let Some(role) = guild.roles.get(role_id) {
+                        if role.permissions.administrator() {
+                            is_admin = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // PM이거나 관리자 권한이 있는 경우에만 명령어 실행
+            if !is_pm && !is_admin {
+                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.").await?;
+                return Ok(());
+            }
 
             // 역할 id 찾기
             let mut target_role_id = None;
@@ -150,6 +181,34 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 Some(id) => id,
                 None => return Ok(()),
             };
+
+            let guild = guild_id.to_partial_guild(&ctx.http).await?;
+            let member = guild_id.member(&ctx.http, msg.author.id).await?;
+
+            // 명령어 사용자가 PM인지 확인
+            let is_pm = match cache.project_pms.get(&project_name) {
+                Some(pm_id) => *pm_id == msg.author.id,
+                None => false,
+            };
+
+            // 명령어 사용자가 관리자 권한인지 확인
+            let mut is_admin = guild.owner_id == msg.author.id;
+            if !is_admin {
+                for role_id in &member.roles {
+                    if let Some(role) = guild.roles.get(role_id) {
+                        if role.permissions.administrator() {
+                            is_admin = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // PM이거나 관리자 권한이 있는 경우에만 명령어 실행
+            if !is_pm && !is_admin {
+                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.").await?;
+                return Ok(());
+            }
 
             // 역할 id 찾기
             let mut target_role_id = None;
