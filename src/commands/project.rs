@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use serde::de::value;
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::prelude::*;
@@ -8,8 +7,6 @@ use serenity::{prelude::*};
 use serenity::builder::{CreateChannel, EditChannel, EditRole};
 use serenity::model::channel::{PermissionOverwrite, PermissionOverwriteType};
 use serenity::model::id::RoleId;
-
-use crate::cache::CacheNotifyKey;
 
 #[command]
 async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -180,6 +177,13 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
             if let Some(guild_id) = msg.guild_id {
                 if let Channel::Guild(channel) = msg.channel_id.to_channel(&ctx.http).await? {
                     if let Some(category_id) = channel.parent_id {
+                        // 동명의 프로젝트(역할)가 이미 존재하는지 캐시에서 불러와 확인
+                        let exists = cache.project_mapping.keys().any(|k| k.contains(&new_name));
+                        if exists {
+                            msg.reply(ctx, format!("❌ 이미 '{}' 이름의 프로젝트가 존재합니다. 다른 이름을 사용해주세요.", new_name)).await?;
+                            return Ok(());
+                        }
+
                         // 기존 프로젝트 이름 추출
                         let mut old_name = String::new();
                         if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await {
@@ -296,18 +300,19 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 }
                             }
                         }
-                        // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
-                        // 일단 삭제시에는 갱신할지 말지 보류
-                        // if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                        //     let _ = tx.send(()).await;
-                        // }
+                        // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
+                        drop(cache);
+
+                        // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
+                        let mut cache_guard = cache_lock.write().await;
+                        cache_guard.project_mapping.remove(&category_name);
+                        cache_guard.project_pms.remove(&category_name);
                     } else {
                         msg.reply(ctx, "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.").await?;
                     }
                 }
             }
         },
-
         _ => {
             msg.reply(ctx, "❌ 알 수 없는 하위 명령어입니다. (사용 가능: generate, rename, delete)").await?;
         }
