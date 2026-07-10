@@ -132,7 +132,7 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             }
 
             if added_users.is_empty() {
-                msg.reply(ctx, "❌ 역할을 부여할 수 있는 올바른 유저가 없거나 권한 오류가 발생했습니다.").await?;
+                msg.reply(ctx, "❌ 올바른 유저 형식이 아니거나 불러올 수 있는 유저가 없습니다").await?;
             }
             else {
                 let mentions: Vec<String> = added_users.iter().map(|id| format!("<@{}>", id)).collect();
