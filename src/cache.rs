@@ -19,6 +19,7 @@ pub struct BotCache {
     // 유저 아이디로 관리
     pub all_members: HashMap<UserId, String>,
     pub project_mapping: HashMap<String, HashSet<UserId>>,
+    pub project_pms: HashMap<String, UserId>,
 }
 
 pub struct SharedCacheKey;
@@ -45,6 +46,7 @@ async fn update_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id:
             let mut new_cache = BotCache {
                 all_members:HashMap::new(),
                 project_mapping: HashMap::new(),
+                project_pms: HashMap::new(),
             };
 
             //맴버 별로 순회하면서 해당 프로젝트에 참여중인지 아닌지 확인
@@ -66,7 +68,6 @@ async fn update_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id:
                     }
                 }
             }
-
             //새로 갱신한 값 덮어쓰기
             {
                 let mut lock = cache.write().await;

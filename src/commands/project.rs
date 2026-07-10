@@ -6,6 +6,8 @@ use serenity::builder::{CreateChannel, EditChannel, EditRole};
 use serenity::model::channel::{PermissionOverwrite, PermissionOverwriteType};
 use serenity::model::id::RoleId;
 
+use crate::cache::CacheNotifyKey;
+
 #[command]
 async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     let subcommand = match args.single::<String>() {
@@ -15,6 +17,14 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
             return Ok(());
         }
     };
+
+    // 캐쉬 가져오기
+    let data_read = ctx.data.read().await;
+    let cache_lock = data_read
+        .get::<crate::cache::SharedCacheKey>()
+        .expect("보관함에 캐시가 없습니다.")
+        .clone();
+    let cache = cache_lock.read().await;
 
     match subcommand.as_str() {
         // --- 1. 프로젝트 생성 (역할 생성 + 비공개 카테고리 + 봇 예외 권한 + 채널 일괄 생성) ---
@@ -28,13 +38,11 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
             };
 
             if let Some(guild_id) = msg.guild_id {
-                // 🔍 [개선 2] 동명의 프로젝트(역할)가 이미 존재하는지 실시간 API로 확인
-                if let Ok(roles) = guild_id.roles(&ctx.http).await {
-                    let exists = roles.values().any(|role| role.name == project_name);
-                    if exists {
-                        msg.reply(ctx, format!("❌ 이미 '{}' 이름의 프로젝트가 존재합니다. 다른 이름을 사용해주세요.", project_name)).await?;
-                        return Ok(());
-                    }
+                // 동명의 프로젝트(역할)가 이미 존재하는지 캐시에서 불러와 확인
+                let exists = cache.project_mapping.keys().any(|k| k.contains(&project_name));
+                if exists {
+                    msg.reply(ctx, format!("❌ 이미 '{}' 이름의 프로젝트가 존재합니다. 다른 이름을 사용해주세요.", project_name)).await?;
+                    return Ok(());
                 }
 
                 msg.reply(ctx, format!("🏗️ '{}' 프로젝트 생성을 시작합니다. 역할 및 채널을 세팅 중...", project_name)).await?;
@@ -48,6 +56,7 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     }
                 };
 
+                // 새로운 역할 생성
                 let role_builder = EditRole::new().name(&project_name);
                 let project_role = match guild_id.create_role(&ctx.http, role_builder).await {
                     Ok(role) => role,
@@ -57,6 +66,7 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     }
                 };
 
+                // 생성한 유저에게 역할 부여
                 match guild_id.member(&ctx.http, msg.author.id).await {
                     Ok(member) => {
                         if let Err(why) = member.add_role(&ctx.http, project_role.id).await {
@@ -98,9 +108,9 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     .kind(ChannelType::Category)
                     .permissions(vec![deny_everyone, allow_project_role, allow_bot]);
 
+                // 채널 목록대로 프로젝트내 채널 구성
                 match guild_id.create_channel(&ctx.http, category_builder).await {
                     Ok(category) => {
-                        // 유저 커스텀 채널 목록 유지
                         let text_channels = vec![
                             "🤖bot",
                             "🌐dev",
@@ -124,11 +134,15 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                             .category(category.id); // 유저 커스텀 메서드 유지
                         let _ = guild_id.create_channel(&ctx.http, voice_builder).await;
 
-                        msg.channel_id.say(&ctx.http, format!("🚀 <@{}> 님, 비공개 프로젝트 서버 세팅이 완료되었습니다!\n(전용 역할이 부여되었습니다.)", msg.author.id)).await?;
+                        msg.channel_id.say(&ctx.http, format!("🚀 <@{}> 님, 프로젝트 서버 세팅이 완료되었습니다!", msg.author.id)).await?;
                     },
                     Err(why) => {
                         msg.reply(ctx, format!("❌ 카테고리 생성 실패: {:?}", why)).await?;
                     }
+                }
+                // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
+                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+                    let _ = tx.send(()).await;
                 }
             }
         },
@@ -146,14 +160,15 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
             if let Some(guild_id) = msg.guild_id {
                 if let Channel::Guild(channel) = msg.channel_id.to_channel(&ctx.http).await? {
                     if let Some(category_id) = channel.parent_id {
-                        
+                        // 기존 프로젝트 이름 추출
                         let mut old_name = String::new();
                         if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await {
                             old_name = cat_channel.name.clone();
                         }
 
                         let builder = EditChannel::new().name(&new_name);
-
+                        
+                        // 서버 역할명 변경
                         match category_id.edit(&ctx.http, builder).await {
                             Ok(_) => {
                                 let mut role_renamed = false;
@@ -182,6 +197,10 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 } else {
                                     msg.reply(ctx, format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)).await?;
                                 }
+                                // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
+                                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+                                    let _ = tx.send(()).await;
+                                }
                             },
                             Err(why) => {
                                 msg.reply(ctx, format!("❌ 이름 변경 실패: {:?}", why)).await?;
@@ -200,6 +219,7 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                 let guild = guild_id.to_partial_guild(&ctx.http).await?;
                 let member = guild_id.member(&ctx.http, msg.author.id).await?;
                 
+                // 서버 관리자인지 권한 확인
                 let mut is_admin = guild.owner_id == msg.author.id;
                 if !is_admin {
                     for role_id in &member.roles {
@@ -252,6 +272,11 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 }
                             }
                         }
+                        // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
+                        // 일단 삭제시에는 갱신할지 말지 보류
+                        // if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+                        //     let _ = tx.send(()).await;
+                        // }
                     } else {
                         msg.reply(ctx, "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.").await?;
                     }
