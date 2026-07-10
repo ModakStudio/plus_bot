@@ -6,7 +6,10 @@ cache.rs
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use serenity::all::{UserId};
+use serenity::all::Change::Name;
+use serenity::all::{ChannelType, UserId};
+use serenity::futures::channel;
+use serenity::model::guild;
 use tokio::sync::{RwLock, mpsc};
 
 use serenity::prelude::TypeMapKey;
@@ -48,8 +51,7 @@ async fn update_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id:
                 project_mapping: HashMap::new(),
                 project_pms: HashMap::new(),
             };
-
-            //맴버 별로 순회하면서 해당 프로젝트에 참여중인지 아닌지 확인
+            // 맴버 별로 순회하면서 해당 프로젝트에 참여중인지 아닌지 확인
             for member in members {
                 let user_id = member.user.id;      // 💡 유저 고유 ID 추출
                 let username = member.user.name.clone();
@@ -65,6 +67,25 @@ async fn update_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id:
                             .or_insert_with(HashSet::new)
                             .insert(user_id);
                         
+                    }
+                }
+            }
+            // 프로젝트 목록을 받아와서 PM추출하기
+            if let Ok(channels) = guild_id.channels(&http).await {
+                for (_channel_id, channel) in channels {
+                    // 카테고리(프로젝트)이면서 이름에 "(PM: " 택스트가 붙어 있는지 필터링
+                    if channel.kind == ChannelType::Category && channel.name.contains("(PM: ") {
+                        //프로젝트명과 pm이름 분리
+                        let parts:Vec<&str> = channel.name.split("PM: ").collect();
+                        if parts.len() == 2 {
+                            let project_name = parts[0].to_string();
+                            let pm_name = parts[1].trim_end_matches(')');
+
+                            // pm이름을 이용해 user_id 역추척하기
+                            if let Some((&pm_id, _)) = new_cache.all_members.iter().find(|(_, name)| **name == pm_name) {
+                                new_cache.project_pms.insert(project_name, pm_id);
+                            }
+                        }
                     }
                 }
             }
