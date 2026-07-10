@@ -47,26 +47,19 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             //인원 출력전 분류 vector
             let mut included_mems = Vec::new(); //참여 인원
-            let mut excluded_mems = Vec::new(); //미참여 인원
 
-            //전체 맴버 순회하면서 캐쉬랑 맞춰보고 포함, 배제 구분
+            //전체 맴버 순회하면서 캐쉬랑 맞춰보고 포함인원만 추출
             for (user_id, username) in &cache.all_members {
                 //included_set이 비지 않은 경우와 빈 경우 나눠서 생각
                 if let Some(set) = included_set {
                     if set.contains(user_id) {
                         included_mems.push(username.clone());
-                    } else {
-                        excluded_mems.push(username.clone());
                     }
-                } else {
-                    excluded_mems.push(username.clone()); // 해당 프로젝트에 아무도 없는 경우
                 }
             }
 
             // 결과 출력
             let mut content = String::from("사용법: `/member <add | remove> [@유저들]`\n\n");
-            content.push_str("`미참여 인원`\n");
-            for mem in excluded_mems { content.push_str(&format!("{}\n", mem)); }
             content.push_str("`참여 인원`\n");
             for mem in included_mems { content.push_str(&format!("{}\n", mem)); }
 
