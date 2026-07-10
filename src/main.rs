@@ -100,6 +100,7 @@ async fn main() {
     let shared_cache = Arc::new(RwLock::new(cache::BotCache {
         all_members: HashMap::new(),
         project_mapping: HashMap::new(),
+        project_pms: HashMap::new(),
     }));
 
     {
