@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use serenity::all::{UserId};
 use tokio::sync::{RwLock, mpsc};
-use tokio::time::Duration;
 
 use serenity::prelude::TypeMapKey;
 use serenity::http::Http;
@@ -38,9 +37,6 @@ pub struct ShardManagerContainer;
 impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<ShardManager>;
 }
-
-// 쓰레드가 정기 갱신하는 인터벌 설정
-const DEFALT_SYNC_INTERVAL:Duration = Duration::from_secs(30);
 
 // 캐쉬 업데이트 함수
 async fn update_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id: GuildId) {
@@ -92,20 +88,13 @@ pub fn start_cache_thread(cache: Arc<RwLock<BotCache>>, http: Arc<Http>, guild_i
         // 봇이 켜졌을떄 한 번 연동
         update_cache(&cache, &http, guild_id).await;
 
-        loop {
-            tokio::select! {
-                // 정기 갱신
-                _ = tokio::time::sleep(DEFALT_SYNC_INTERVAL) => {
-                    println!("[정기 갱신] 캐시를 동기화 합니다");
-                    update_cache(&cache, &http, guild_id).await;
-                }
-                // 강제 갱신
-                Some(_) = rx.recv() => {
-                    println!("[강제 갱신] 명령어 요청에 의해 즉시 캐시를 동기화 합니다");
-                    update_cache(&cache, &http, guild_id).await;
-                }
-            }
+        while let Some(_) = rx.recv().await {
+            println!("[캐시 갱신] 명령어 요청에 의해 즉시 캐시를 동기화 합니다");
+            update_cache(&cache, &http, guild_id).await;
         }
+
+        // 만약 봇이 꺼지거나 tx를 가진 곳이 전부 드롭되면 루프 종료.
+        println!("백그라운드 동기화 스레드 종료");
     });
 
     tx
