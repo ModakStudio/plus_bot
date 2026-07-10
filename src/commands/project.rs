@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+
+use serde::de::value;
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::prelude::*;
-use serenity::prelude::*;
+use serenity::{prelude::*};
 use serenity::builder::{CreateChannel, EditChannel, EditRole};
 use serenity::model::channel::{PermissionOverwrite, PermissionOverwriteType};
 use serenity::model::id::RoleId;
@@ -67,22 +70,26 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                 };
 
                 // 생성한 유저에게 역할 부여
-                match guild_id.member(&ctx.http, msg.author.id).await {
-                    Ok(member) => {
-                        if let Err(why) = member.add_role(&ctx.http, project_role.id).await {
-                            println!("⚠️ [generate] 유저에게 역할 부여 실패: {:?}", why);
-                        } else {
-                            println!("✅ [generate] 유저에게 역할(ID: {}) 부여 완료", project_role.id);
-                        }
-                    },
-                    Err(why) => {
-                        println!("⚠️ [generate] 멤버 정보를 서버에서 가져오지 못함: {:?}", why);
-                    }
+                // match guild_id.member(&ctx.http, msg.author.id).await {
+                //     Ok(member) => {
+                //         if let Err(why) = member.add_role(&ctx.http, project_role.id).await {
+                //             println!("⚠️ [generate] 유저에게 역할 부여 실패: {:?}", why);
+                //         } else {
+                //             println!("✅ [generate] 유저에게 역할(ID: {}) 부여 완료", project_role.id);
+                //         }
+                //     },
+                //     Err(why) => {
+                //         println!("⚠️ [generate] 멤버 정보를 서버에서 가져오지 못함: {:?}", why);
+                //     }
+                // }
+                if let Err(why) = ctx.http.add_member_role(guild_id, msg.author.id, project_role.id, None).await {
+                    println!("⚠️ [generate] 유저에게 역할 부여 실패: {:?}", why);
+                } else {
+                    println!("✅ [generate] 유저에게 역할(ID: {}) 부여 완료", project_role.id);
                 }
 
-                let everyone_role_id = RoleId::new(guild_id.get());
-                
                 // 1) @everyone은 채널을 보지 못하게 차단
+                let everyone_role_id = RoleId::new(guild_id.get());
                 let deny_everyone = PermissionOverwrite {
                     allow: Permissions::empty(),
                     deny: Permissions::VIEW_CHANNEL,
@@ -103,8 +110,18 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     kind: PermissionOverwriteType::Member(bot_id),
                 };
 
+                // 캐시에서 해당 이름이 있는지 확인
+                let pm_name = match cache.all_members.get(&msg.author.id) {
+                    Some(name) => name.clone(),
+                    None => {
+                        println!("해당 아이디의 이름이 캐시에 존재하지 않습니다!");
+                        msg.author.name.clone() // 캐시에 해당 이름이 없을시 디스코드 이름으로 작성
+                    }
+                };
+                
                 // 카테고리 빌더에 세 가지 권한 규칙을 모두 주입
-                let category_builder = CreateChannel::new(&project_name)
+                let category_name = format!("{}(PM: {})", project_name, pm_name);
+                let category_builder = CreateChannel::new(&category_name)
                     .kind(ChannelType::Category)
                     .permissions(vec![deny_everyone, allow_project_role, allow_bot]);
 
@@ -124,14 +141,14 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                         for ch_name in text_channels {
                             let builder = CreateChannel::new(ch_name)
                                 .kind(ChannelType::Text)
-                                .category(category.id); // 유저 커스텀 메서드 유지
+                                .category(category.id);
                             let _ = guild_id.create_channel(&ctx.http, builder).await;
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
 
                         let voice_builder = CreateChannel::new("🎙️ voice chat")
                             .kind(ChannelType::Voice)
-                            .category(category.id); // 유저 커스텀 메서드 유지
+                            .category(category.id);
                         let _ = guild_id.create_channel(&ctx.http, voice_builder).await;
 
                         msg.channel_id.say(&ctx.http, format!("🚀 <@{}> 님, 프로젝트 서버 세팅이 완료되었습니다!", msg.author.id)).await?;
@@ -140,10 +157,13 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                         msg.reply(ctx, format!("❌ 카테고리 생성 실패: {:?}", why)).await?;
                     }
                 }
-                // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
-                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                    let _ = tx.send(()).await;
-                }
+                // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
+                drop(cache);
+
+                // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
+                let mut cache_guard = cache_lock.write().await;
+                cache_guard.project_mapping.insert(project_name.clone(), HashSet::from([msg.author.id]));
+                cache_guard.project_pms.insert(project_name.clone(), msg.author.id);
             }
         },
 
@@ -197,9 +217,13 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 } else {
                                     msg.reply(ctx, format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)).await?;
                                 }
-                                // 변화가 생겼으므로 쓰레드를 깨워 캐시 갱신
-                                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                                    let _ = tx.send(()).await;
+                                // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
+                                drop(cache);
+
+                                // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
+                                let mut cache_guard = cache_lock.write().await;
+                                if let Some((_, value)) = cache_guard.project_mapping.remove_entry(&old_name) {
+                                    cache_guard.project_mapping.insert(new_name, value);
                                 }
                             },
                             Err(why) => {

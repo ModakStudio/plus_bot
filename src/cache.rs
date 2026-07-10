@@ -6,16 +6,13 @@ cache.rs
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use serenity::all::Change::Name;
 use serenity::all::{ChannelType, UserId};
-use serenity::futures::channel;
-use serenity::model::guild;
-use tokio::sync::{RwLock, mpsc};
-
 use serenity::prelude::TypeMapKey;
 use serenity::http::Http;
 use serenity::model::id::GuildId;
 use serenity::gateway::ShardManager;
+
+use tokio::sync::{RwLock, mpsc};
 
 //봇이 전체적으로 공유할 캐쉬 구조체
 pub struct BotCache {
