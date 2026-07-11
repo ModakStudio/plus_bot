@@ -130,7 +130,7 @@ async fn main() {
     // 캐시 쓰레드 시작
     let cache_tx = cache::start_cache_thread(shared_cache.clone(), client.http.clone(), guild_id);
     
-    // 💡 전역 data 저장소에 tx를 삽입하여 생명주기를 봇과 일치시킵니다.
+    // 💡 전역 data 저장소에 tx를 삽입하여 생명주기를 봇과 일치시킴
     let mut data = client.data.write().await;
     data.insert::<CacheNotifyKey>(cache_tx);
     drop(data); // data를 drop하여 lock을 해제합니다.

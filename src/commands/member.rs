@@ -72,6 +72,12 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         }
     };
     
+    // 캐시 갱신 신호를 보낼 수 있는 Sender 가져오기
+    let tx = data_read
+        .get::<CacheNotifyKey>()
+        .expect("보관함에 캐시 갱신 신호가 없습니다.")
+        .clone();
+
     // 하위 커맨드 구현
     match subcommand.as_str() {
         "add" => {
@@ -171,12 +177,10 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 msg.reply(ctx, format!("✅ {} 님이 '{}' 프로젝트에 추가되었습니다!", mentions.join(", "), project_name)).await?;
 
                 // 캐시 스레드 깨우기
-                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                    let _ = tx.send(CacheCommand::AddProjectMembers { 
-                        project_name: project_name.to_string(), 
-                        user_ids: added_users.into_iter().collect() 
-                    }).await;
-                }
+                let _ = tx.send(CacheCommand::AddProjectMembers { 
+                    project_name: project_name.to_string(), 
+                    user_ids: added_users.into_iter().collect() 
+                }).await;
             }
         },
         "remove" => {
@@ -277,12 +281,10 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 msg.reply(ctx, format!("❌ {} 님이 '{}' 프로젝트에서 내보내졌습니다", mentions.join(", "), project_name)).await?;
 
                 // 캐시 스레드 깨우기
-                if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                    let _ = tx.send(CacheCommand::RemoveProjectMembers { 
-                        project_name: project_name.to_string(), 
-                        user_ids:removed_users.into_iter().collect() 
-                    }).await;
-                }
+                let _ = tx.send(CacheCommand::RemoveProjectMembers { 
+                    project_name: project_name.to_string(), 
+                    user_ids:removed_users.into_iter().collect() 
+                }).await;
             }
         },
         _ => { //이외의 하위 명령어 입력 시

@@ -18,13 +18,19 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
         }
     };
 
-    // 캐쉬 가져오기
+    // 캐시 가져오기
     let data_read = ctx.data.read().await;
     let cache_lock = data_read
         .get::<crate::cache::SharedCacheKey>()
         .expect("보관함에 캐시가 없습니다.")
         .clone();
     let cache = cache_lock.read().await;
+
+    // 캐시 갱신 신호를 보낼 수 있는 Sender 가져오기
+    let tx = data_read
+        .get::<CacheNotifyKey>()
+        .expect("보관함에 캐시 갱신 신호가 없습니다.")
+        .clone();
 
     match subcommand.as_str() {
         // --- 1. 프로젝트 생성 (역할 생성 + 비공개 카테고리 + 봇 예외 권한 + 채널 일괄 생성) ---
@@ -174,10 +180,6 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     }
                 }
                 // 캐시 리프래시
-                let tx = data_read
-                    .get::<CacheNotifyKey>()
-                    .expect("보관함에 캐시 갱신 신호가 없습니다.")
-                    .clone();
                 let _ = tx.send(CacheCommand::RefreshAll).await; 
             }
         },
@@ -240,10 +242,6 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                     msg.reply(ctx, format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)).await?;
                                 }
                                 // 캐시 리프래시
-                                let tx = data_read
-                                    .get::<CacheNotifyKey>()
-                                    .expect("보관함에 캐시 갱신 신호가 없습니다.")
-                                    .clone();
                                 let _ = tx.send(CacheCommand::RefreshAll).await;
                             },
                             Err(why) => {
@@ -303,10 +301,12 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
 
                         let _ = category_id.delete(&ctx.http).await;
 
+                        let project_name = category_name.split("(PM:").collect::<Vec<&str>>().get(0).unwrap_or(&"").trim().to_string();
+
                         // 🔍 [수정] 대소문자 구분 없는 비교로 변경하여 확실하게 삭제되도록 보완
                         if let Ok(roles) = guild_id.roles(&ctx.http).await {
                             for role in roles.values() {
-                                if !category_name.is_empty() && role.name.to_lowercase() == category_name.to_lowercase() {
+                                if !project_name.is_empty() && role.name.to_lowercase() == project_name.to_lowercase() {
                                     if let Err(why) = guild_id.delete_role(&ctx.http, role.id).await {
                                         println!("⚠️ 역할 [{}] 삭제 실패: {:?}", role.name, why);
                                     } else {
@@ -316,11 +316,8 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 }
                             }
                         }
+
                         // 캐시 리프래시
-                        let tx = data_read
-                            .get::<CacheNotifyKey>()
-                            .expect("보관함에 캐시 갱신 신호가 없습니다.")
-                            .clone();
                         let _ = tx.send(CacheCommand::RefreshAll).await; 
                     } else {
                         msg.reply(ctx, "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.").await?;

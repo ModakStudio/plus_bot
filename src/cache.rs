@@ -58,7 +58,7 @@ impl TypeMapKey for ShardManagerContainer {
 
 // 쓰레드 구성
 pub fn start_cache_thread(cache: Arc<RwLock<BotCache>>, http: Arc<Http>, guild_id: GuildId) -> mpsc::Sender<CacheCommand> {
-    // 버퍼 크기가 10인 비동기 채널 생성(가동신호 수신용)
+    // 버퍼 크기가 32인 비동기 채널 생성(가동신호 수신용)
     let (tx, mut rx) = mpsc::channel::<CacheCommand>(32);
 
     tokio::spawn(async move {
