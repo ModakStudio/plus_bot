@@ -1,3 +1,4 @@
+use serenity::all::{CreateCommand, CreateCommandOption, CommandOptionType, Permissions};
 use serenity::builder::{CreateChannel, EditChannel, EditRole};
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
@@ -7,6 +8,56 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 use crate::cache::{CacheCommand, CacheNotifyKey};
+
+pub fn register_project_commands() -> CreateCommand {
+    CreateCommand::new("project")
+        .description("프로젝트 관련 명령어")
+        .dm_permission(false)
+        .default_member_permissions(Permissions::MANAGE_CHANNELS)
+        
+        // 1. generate 서브커맨드 (/project generate [name])
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::SubCommand,
+                "generate",
+                "새 프로젝트를 생성합니다."
+            )
+            .add_sub_option(
+                CreateCommandOption::new(
+                    CommandOptionType::String,
+                    "name",
+                    "생성할 프로젝트 이름"
+                )
+                .required(true)
+            )
+        )
+        
+        // 2. rename 서브커맨드 (/project rename [new_name])
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::SubCommand,
+                "rename",
+                "프로젝트 이름을 변경합니다."
+            )
+            .add_sub_option(
+                CreateCommandOption::new(
+                    CommandOptionType::String,
+                    "new_name",
+                    "변경할 새 프로젝트 이름"
+                )
+                .required(true)
+            )
+        )
+        
+        // 3. delete 서브커맨드 (/project delete)
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::SubCommand,
+                "delete",
+                "프로젝트를 완전히 삭제합니다."
+            )
+        )
+}
 
 #[command]
 async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {

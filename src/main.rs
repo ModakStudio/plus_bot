@@ -33,12 +33,24 @@ use crate::cache::*; // {ShardManagerContainer, SharedCacheKey, CacheNotifyKey};
 use crate::commands::member::*;
 use crate::commands::project::*;
 
-struct Handler;
+struct Handler {
+    guild_id: GuildId,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
         info!("Connected as {}", ready.user.name);
+
+        let guild_id = self.guild_id;
+
+        let commands_list = vec![
+            commands::project::register_project_commands(),
+        ];
+
+        if let Err(why) = guild_id.set_commands(&ctx.http, commands_list) {
+            error!("Failed to set commands: {}", why);
+        }
     }
 
     async fn resume(&self, _: Context, _: ResumedEvent) {
@@ -112,7 +124,7 @@ async fn main() {
         | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(&token, intents)
         .framework(framework)
-        .event_handler(Handler)
+        .event_handler(Handler { guild_id })
         .await
         .expect("Err creating client");
 
