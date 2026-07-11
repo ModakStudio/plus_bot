@@ -2,11 +2,11 @@ use std::collections::HashSet;
 
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
-use serenity::model::{prelude::*};
+use serenity::model::prelude::*;
 use serenity::prelude::*;
 
-use crate::cache::CacheNotifyKey;
 use crate::cache::CacheCommand;
+use crate::cache::CacheNotifyKey;
 
 // 앞으로 해야할거
 // 추후 개발방향: 노션에 연동해서 프로젝트 참여 인원 확인 하기
@@ -15,9 +15,9 @@ use crate::cache::CacheCommand;
 async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
     //명령어가 입력된 채널 정보 가져오기
     let channel = msg.channel_id.to_channel(&ctx.http).await?.guild().unwrap();
-    
+
     //명령어가 카테고리에 속해있는 채널에서 입력된건지 확인
-    let project_name:String;
+    let project_name: String;
     // let pm_name:String;
     match channel.parent_id {
         Some(category_id) => {
@@ -29,9 +29,10 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             // pm_name = category_name_parts[1].trim().trim_end_matches(')').to_string();
         }
         None => {
-            msg.reply(ctx, "❌ 이 명령어는 프로젝트 내에서만 사용 가능합니다").await?;
+            msg.reply(ctx, "❌ 이 명령어는 프로젝트 내에서만 사용 가능합니다")
+                .await?;
             return Ok(());
-        },
+        }
     };
 
     // 캐쉬 가져오기
@@ -41,11 +42,12 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         .expect("보관함에 캐시가 없습니다.")
         .clone();
     let cache = cache_lock.read().await;
-    
+
     //인수 파싱
     let subcommand = match args.single::<String>() {
         Ok(cmd) => cmd,
-        Err(_) => { //만약 뒤에 아무런 커맨드가 없다면 => 사용법 출력
+        Err(_) => {
+            //만약 뒤에 아무런 커맨드가 없다면 => 사용법 출력
             // 보관된 해쉬맵에서 바로 꺼내쓰기
             let included_set = cache.project_mapping.get(&project_name);
 
@@ -65,13 +67,15 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             // 결과 출력
             let mut content = String::from("사용법: `/member <add | remove> [@유저들]`\n\n");
             content.push_str("`참여 인원`\n");
-            for mem in included_mems { content.push_str(&format!("{}\n", mem)); }
+            for mem in included_mems {
+                content.push_str(&format!("{}\n", mem));
+            }
 
             msg.reply(ctx, content).await?;
             return Ok(());
         }
     };
-    
+
     // 캐시 갱신 신호를 보낼 수 있는 Sender 가져오기
     let tx = data_read
         .get::<CacheNotifyKey>()
@@ -111,7 +115,8 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             // PM이거나 관리자 권한이 있는 경우에만 명령어 실행
             if !is_pm && !is_admin {
-                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.").await?;
+                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.")
+                    .await?;
                 return Ok(());
             }
 
@@ -125,7 +130,14 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             let role_id = match target_role_id {
                 Some(id) => id,
                 None => {
-                    msg.reply(ctx, format!("❌ '{}' 이름의 프로젝트 역할을 찾을 수 없습니다.", project_name)).await?;
+                    msg.reply(
+                        ctx,
+                        format!(
+                            "❌ '{}' 이름의 프로젝트 역할을 찾을 수 없습니다.",
+                            project_name
+                        ),
+                    )
+                    .await?;
                     return Ok(());
                 }
             };
@@ -154,13 +166,23 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                                 continue;
                             }
 
-                            match ctx.http.add_member_role(guild_id, user_id, role_id, None).await {
-                                Ok(_) => { added_users.push(user_id); }
-                                Err(why) => { println!("❌ [디스코드 API 에러] 역할 부여 실패: {:?}", why); }
+                            match ctx
+                                .http
+                                .add_member_role(guild_id, user_id, role_id, None)
+                                .await
+                            {
+                                Ok(_) => {
+                                    added_users.push(user_id);
+                                }
+                                Err(why) => {
+                                    println!("❌ [디스코드 API 에러] 역할 부여 실패: {:?}", why);
+                                }
                             }
-                        }
-                        else {
-                            println!("⚠️ 숫자로 변환할 수 없는 올바르지 않은 유저 형식: {}", user_str);
+                        } else {
+                            println!(
+                                "⚠️ 숫자로 변환할 수 없는 올바르지 않은 유저 형식: {}",
+                                user_str
+                            );
                         }
                     }
                     Err(_) => {
@@ -170,19 +192,33 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             }
 
             if added_users.is_empty() {
-                msg.reply(ctx, "❌ 올바른 유저 형식이 아니거나 불러올 수 있는 유저가 없습니다").await?;
-            }
-            else {
-                let mentions: Vec<String> = added_users.iter().map(|id| format!("<@{}>", id)).collect();
-                msg.reply(ctx, format!("✅ {} 님이 '{}' 프로젝트에 추가되었습니다!", mentions.join(", "), project_name)).await?;
+                msg.reply(
+                    ctx,
+                    "❌ 올바른 유저 형식이 아니거나 불러올 수 있는 유저가 없습니다",
+                )
+                .await?;
+            } else {
+                let mentions: Vec<String> =
+                    added_users.iter().map(|id| format!("<@{}>", id)).collect();
+                msg.reply(
+                    ctx,
+                    format!(
+                        "✅ {} 님이 '{}' 프로젝트에 추가되었습니다!",
+                        mentions.join(", "),
+                        project_name
+                    ),
+                )
+                .await?;
 
                 // 캐시 스레드 깨우기
-                let _ = tx.send(CacheCommand::AddProjectMembers { 
-                    project_name: project_name.to_string(), 
-                    user_ids: added_users.into_iter().collect() 
-                }).await;
+                let _ = tx
+                    .send(CacheCommand::AddProjectMembers {
+                        project_name: project_name.to_string(),
+                        user_ids: added_users.into_iter().collect(),
+                    })
+                    .await;
             }
-        },
+        }
         "remove" => {
             //서버 아이디 획득
             let guild_id = match msg.guild_id {
@@ -214,7 +250,8 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
             // PM이거나 관리자 권한이 있는 경우에만 명령어 실행
             if !is_pm && !is_admin {
-                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.").await?;
+                msg.reply(ctx, "❌ 이 명령어를 사용할 권한이 없습니다.")
+                    .await?;
                 return Ok(());
             }
 
@@ -228,7 +265,14 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             let role_id = match target_role_id {
                 Some(id) => id,
                 None => {
-                    msg.reply(ctx, format!("❌ '{}' 이름의 프로젝트 역할을 찾을 수 없습니다.", project_name)).await?;
+                    msg.reply(
+                        ctx,
+                        format!(
+                            "❌ '{}' 이름의 프로젝트 역할을 찾을 수 없습니다.",
+                            project_name
+                        ),
+                    )
+                    .await?;
                     return Ok(());
                 }
             };
@@ -258,13 +302,23 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                                 continue;
                             }
 
-                            match ctx.http.remove_member_role(guild_id, user_id, role_id, None).await {
-                                Ok(_) => { removed_users.push(user_id); }
-                                Err(why) => { println!("❌ [디스코드 API 에러] 역할 제거 실패: {:?}", why); }
+                            match ctx
+                                .http
+                                .remove_member_role(guild_id, user_id, role_id, None)
+                                .await
+                            {
+                                Ok(_) => {
+                                    removed_users.push(user_id);
+                                }
+                                Err(why) => {
+                                    println!("❌ [디스코드 API 에러] 역할 제거 실패: {:?}", why);
+                                }
                             }
-                        }
-                        else {
-                            println!("⚠️ 숫자로 변환할 수 없는 올바르지 않은 유저 형식: {}", user_str);
+                        } else {
+                            println!(
+                                "⚠️ 숫자로 변환할 수 없는 올바르지 않은 유저 형식: {}",
+                                user_str
+                            );
                         }
                     }
                     Err(_) => {
@@ -274,23 +328,44 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             }
 
             if removed_users.is_empty() {
-                msg.reply(ctx, "❌ 올바른 유저 형식이 아니거나 내보낼 수 있는 유저가 없습니다").await?;
-            }
-            else {
-                let mentions: Vec<String> = removed_users.iter().map(|id| format!("<@{}>", id)).collect();
-                msg.reply(ctx, format!("❌ {} 님이 '{}' 프로젝트에서 내보내졌습니다", mentions.join(", "), project_name)).await?;
+                msg.reply(
+                    ctx,
+                    "❌ 올바른 유저 형식이 아니거나 내보낼 수 있는 유저가 없습니다",
+                )
+                .await?;
+            } else {
+                let mentions: Vec<String> = removed_users
+                    .iter()
+                    .map(|id| format!("<@{}>", id))
+                    .collect();
+                msg.reply(
+                    ctx,
+                    format!(
+                        "❌ {} 님이 '{}' 프로젝트에서 내보내졌습니다",
+                        mentions.join(", "),
+                        project_name
+                    ),
+                )
+                .await?;
 
                 // 캐시 스레드 깨우기
-                let _ = tx.send(CacheCommand::RemoveProjectMembers { 
-                    project_name: project_name.to_string(), 
-                    user_ids:removed_users.into_iter().collect() 
-                }).await;
+                let _ = tx
+                    .send(CacheCommand::RemoveProjectMembers {
+                        project_name: project_name.to_string(),
+                        user_ids: removed_users.into_iter().collect(),
+                    })
+                    .await;
             }
-        },
-        _ => { //이외의 하위 명령어 입력 시
-            msg.reply(ctx, "❌ 알 수 없는 하위 명령어입니다. (사용 가능: add, remove)").await?;
+        }
+        _ => {
+            //이외의 하위 명령어 입력 시
+            msg.reply(
+                ctx,
+                "❌ 알 수 없는 하위 명령어입니다. (사용 가능: add, remove)",
+            )
+            .await?;
         }
     };
-    
+
     Ok(())
 }
