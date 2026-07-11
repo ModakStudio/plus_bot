@@ -107,7 +107,8 @@ pub async fn run_member_command(
     // 카테고리 정보 추출을 통해 프로젝트 이름 확인
     let project_name = match channel.parent_id {
         Some(category_id) => {
-            let category_channel: serenity::all::GuildChannel = category_id.to_channel(&ctx.http).await?.guild().unwrap();
+            let category_channel: serenity::all::GuildChannel =
+                category_id.to_channel(&ctx.http).await?.guild().unwrap();
             let category_name_parts: Vec<&str> = category_channel.name.split("(PM: ").collect();
             category_name_parts[0].trim().to_string()
         }
@@ -165,13 +166,14 @@ pub async fn run_member_command(
                 }
             }
 
+            // 참여 인원 명단을 문자열로 포맷팅
             let mut content = format!("📌 **'{}' 프로젝트 참여 인원 명단**\n", project_name);
             if included_mems.is_empty() {
                 content.push_str("현재 등록된 멤버가 없습니다.\n");
             } else {
                 for mem in included_mems {
                     // content.push_str(&format!("• {}\n", mem)); // 반복문 안에서 format 사용 시 성능 저하 우려
-                    let _ = write!(content, "• {}\n", mem); // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
+                    write!(content, "• {}\n", mem).unwrap(); // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
                 }
             }
 
