@@ -75,15 +75,15 @@ pub fn start_cache_thread(cache: Arc<RwLock<BotCache>>, http: Arc<Http>, guild_i
                 }
                 CacheCommand::UpdateSingleMember { user_id, display_name } => {
                     println!("[캐시] {} 님의 단일 캐시 업데이트 중...", display_name);
-                    update_single_member(&cache, user_id, display_name);
+                    update_single_member(&cache, user_id, display_name).await;
                 }
                 CacheCommand::AddProjectMembers { project_name, user_ids } => {
                     println!("[캐시] {} 프로젝트 참여자 목록 추가 중...", project_name);
-                    add_project_members(&cache, project_name, user_ids);
+                    add_project_members(&cache, project_name, user_ids).await;
                 }
                 CacheCommand::RemoveProjectMembers { project_name, user_ids } => {
                     println!("[캐시] {} 프로젝트에서 참여자 제외 중...", project_name);
-                    remove_project_members(&cache, project_name, user_ids);
+                    remove_project_members(&cache, project_name, user_ids).await;
                 }
             }
         }
@@ -152,14 +152,14 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id
 }
 
 // 단일 유저 캐시 갱신
-fn update_single_member(cache: &Arc<RwLock<BotCache>>, user_id: UserId, display_name: String) {
-    let mut guard = cache.blocking_write();
+async fn update_single_member(cache: &Arc<RwLock<BotCache>>, user_id: UserId, display_name: String) {
+    let mut guard = cache.write().await;
     guard.all_members.insert(user_id, display_name);
 }
 
 // 프로젝트 참여자 추가
-fn add_project_members(cache: &Arc<RwLock<BotCache>>, project_name: String, user_ids: HashSet<UserId>) {
-    let mut guard = cache.blocking_write();
+async fn add_project_members(cache: &Arc<RwLock<BotCache>>, project_name: String, user_ids: HashSet<UserId>) {
+    let mut guard = cache.write().await;
     guard.project_mapping
         .entry(project_name)
         .or_default()
@@ -167,9 +167,9 @@ fn add_project_members(cache: &Arc<RwLock<BotCache>>, project_name: String, user
 }
 
 // 프로젝트 참여자 제거
-fn remove_project_members(cache: &Arc<RwLock<BotCache>>, project_name: String, user_ids: HashSet<UserId>) {
-    let mut guard = cache.blocking_write();
-    
+async fn remove_project_members(cache: &Arc<RwLock<BotCache>>, project_name: String, user_ids: HashSet<UserId>) {
+    let mut guard = cache.write().await;
+
     // 💡 프로젝트가 존재할 때만 내부 HashSet을 가져와서 수정합니다.
     if let Some(members) = guard.project_mapping.get_mut(&project_name) {
         for id in user_ids {
