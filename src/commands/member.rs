@@ -105,7 +105,7 @@ pub async fn run_member_command(
     // 카테고리 정보 추출을 통해 프로젝트 이름 확인
     let project_name = match channel.parent_id {
         Some(category_id) => {
-            let category_channel = category_id.to_channel(&ctx.http).await?.guild().unwrap();
+            let category_channel: serenity::all::GuildChannel = category_id.to_channel(&ctx.http).await?.guild().unwrap();
             let category_name_parts: Vec<&str> = category_channel.name.split("(PM: ").collect();
             category_name_parts[0].trim().to_string()
         }
