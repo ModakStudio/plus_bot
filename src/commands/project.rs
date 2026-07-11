@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::prelude::*;
@@ -7,6 +5,8 @@ use serenity::{prelude::*};
 use serenity::builder::{CreateChannel, EditChannel, EditRole};
 use serenity::model::channel::{PermissionOverwrite, PermissionOverwriteType};
 use serenity::model::id::RoleId;
+
+use crate::cache::{CacheCommand, CacheNotifyKey};
 
 #[command]
 async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
@@ -112,7 +112,26 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                     Some(name) => name.clone(),
                     None => {
                         println!("해당 아이디의 이름이 캐시에 존재하지 않습니다!");
-                        msg.author.name.clone() // 캐시에 해당 이름이 없을시 디스코드 이름으로 작성
+                        
+                        // 이름 추출
+                        let latest_name = msg.member.as_ref()
+                            .and_then(|m| m.nick.clone())   // 1. 서버 별명이 있다면 그것을 사용
+                            .unwrap_or_else(|| {                                 // 2. 서버 별명이 없으면 글로벌 이름을 사용
+                                msg.author.global_name.clone()
+                                    .unwrap_or_else(|| msg.author.name.clone())
+                            });
+                        
+                        // 캐시에 해당이름만 갱신
+                        let tx = data_read
+                            .get::<CacheNotifyKey>()
+                            .expect("보관함에 캐시 갱신 신호가 없습니다.")
+                            .clone();
+                        let _ = tx.send(CacheCommand::UpdateSingleMember {
+                            user_id: msg.author.id,
+                            display_name: msg.author.name.clone(),
+                        }).await;
+
+                        latest_name
                     }
                 };
                 
@@ -154,13 +173,12 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                         msg.reply(ctx, format!("❌ 카테고리 생성 실패: {:?}", why)).await?;
                     }
                 }
-                // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
-                drop(cache);
-
-                // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
-                let mut cache_guard = cache_lock.write().await;
-                cache_guard.project_mapping.insert(project_name.clone(), HashSet::from([msg.author.id]));
-                cache_guard.project_pms.insert(project_name.clone(), msg.author.id);
+                // 캐시 리프래시
+                let tx = data_read
+                    .get::<CacheNotifyKey>()
+                    .expect("보관함에 캐시 갱신 신호가 없습니다.")
+                    .clone();
+                let _ = tx.send(CacheCommand::RefreshAll).await; 
             }
         },
 
@@ -221,14 +239,12 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 } else {
                                     msg.reply(ctx, format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)).await?;
                                 }
-                                // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
-                                drop(cache);
-
-                                // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
-                                let mut cache_guard = cache_lock.write().await;
-                                if let Some((_, value)) = cache_guard.project_mapping.remove_entry(&old_name) {
-                                    cache_guard.project_mapping.insert(new_name, value);
-                                }
+                                // 캐시 리프래시
+                                let tx = data_read
+                                    .get::<CacheNotifyKey>()
+                                    .expect("보관함에 캐시 갱신 신호가 없습니다.")
+                                    .clone();
+                                let _ = tx.send(CacheCommand::RefreshAll).await;
                             },
                             Err(why) => {
                                 msg.reply(ctx, format!("❌ 이름 변경 실패: {:?}", why)).await?;
@@ -300,13 +316,12 @@ async fn project(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult 
                                 }
                             }
                         }
-                        // 지금까지 읽기로 캐시를 쓰고 있었으므로 명시적으로 drop
-                        drop(cache);
-
-                        // 이후 새로 쓰기로 캐시에 다시 접근후 쓰기
-                        let mut cache_guard = cache_lock.write().await;
-                        cache_guard.project_mapping.remove(&category_name);
-                        cache_guard.project_pms.remove(&category_name);
+                        // 캐시 리프래시
+                        let tx = data_read
+                            .get::<CacheNotifyKey>()
+                            .expect("보관함에 캐시 갱신 신호가 없습니다.")
+                            .clone();
+                        let _ = tx.send(CacheCommand::RefreshAll).await; 
                     } else {
                         msg.reply(ctx, "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.").await?;
                     }

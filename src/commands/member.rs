@@ -6,6 +6,7 @@ use serenity::model::{prelude::*};
 use serenity::prelude::*;
 
 use crate::cache::CacheNotifyKey;
+use crate::cache::CacheCommand;
 
 // 앞으로 해야할거
 // 추후 개발방향: 노션에 연동해서 프로젝트 참여 인원 확인 하기
@@ -171,7 +172,10 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
                 // 캐시 스레드 깨우기
                 if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                    let _ = tx.send(()).await;
+                    let _ = tx.send(CacheCommand::AddProjectMembers { 
+                        project_name: project_name.to_string(), 
+                        user_ids: added_users.into_iter().collect() 
+                    }).await;
                 }
             }
         },
@@ -274,7 +278,10 @@ async fn member(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
 
                 // 캐시 스레드 깨우기
                 if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-                    let _ = tx.send(()).await;
+                    let _ = tx.send(CacheCommand::RemoveProjectMembers { 
+                        project_name: project_name.to_string(), 
+                        user_ids:removed_users.into_iter().collect() 
+                    }).await;
                 }
             }
         },

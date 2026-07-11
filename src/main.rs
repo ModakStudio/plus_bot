@@ -11,11 +11,11 @@
 mod commands;
 mod cache; // 봇이 관리할 캐쉬 모듈 등록
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 
+use serenity::all::{Member, GuildMemberUpdateEvent};
 use serenity::async_trait;
 use serenity::framework::standard::macros::group;
 use serenity::framework::standard::Configuration;
@@ -28,7 +28,7 @@ use serenity::prelude::*;
 
 use tracing::{error, info};
 
-use crate::cache::ShardManagerContainer;
+use crate::cache::*; // {ShardManagerContainer, SharedCacheKey, CacheNotifyKey};
 
 use crate::commands::project::*;
 use crate::commands::member::*;
@@ -43,6 +43,17 @@ impl EventHandler for Handler {
 
     async fn resume(&self, _: Context, _: ResumedEvent) {
         info!("Resumed");
+    }
+
+    // 누군가 닉네임을 바꾸거나 역할을 바꿀 시 캐쉬를 갱신하도록 이벤트 핸들러 추가
+    async fn guild_member_update(&self, ctx: Context, _old_member:Option<Member>, new_member: Option<Member>, _event: GuildMemberUpdateEvent) {   
+        if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+            let new_mem = new_member.as_ref().unwrap();
+            let _ = tx.send(CacheCommand::UpdateSingleMember {
+                user_id: new_mem.user.id,
+                display_name: new_mem.display_name().to_string(),
+            }).await;
+        }
     }
 }
 
@@ -109,15 +120,20 @@ async fn main() {
         data.insert::<cache::SharedCacheKey>(shared_cache.clone());
     }
 
-    // Ctrl + C 종료 핸들러 스레드 시작
+    // Ctrl + C 종료 핸들러 쓰레드 시작
     let shard_manager = client.shard_manager.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.expect("Could not register ctrl+c handler");
         shard_manager.shutdown_all().await;
     });
 
-    //스레드 시작
-    cache::start_cache_thread(shared_cache.clone(), client.http.clone(), guild_id);
+    // 캐시 쓰레드 시작
+    let cache_tx = cache::start_cache_thread(shared_cache.clone(), client.http.clone(), guild_id);
+    
+    // 💡 전역 data 저장소에 tx를 삽입하여 생명주기를 봇과 일치시킵니다.
+    let mut data = client.data.write().await;
+    data.insert::<CacheNotifyKey>(cache_tx);
+    drop(data); // data를 drop하여 lock을 해제합니다.
 
     if let Err(why) = client.start().await {
         error!("Client error: {:?}", why);
