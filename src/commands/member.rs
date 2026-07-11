@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use serenity::all::{
     Channel, CommandDataOptionValue, CommandInteraction, CommandOptionType, CreateCommand,
     CreateCommandOption,
@@ -164,12 +166,14 @@ pub async fn run_member_command(
                 }
             }
 
+            // 참여 인원 명단을 문자열로 포맷팅
             let mut content = format!("📌 **'{}' 프로젝트 참여 인원 명단**\n", project_name);
             if included_mems.is_empty() {
                 content.push_str("현재 등록된 멤버가 없습니다.\n");
             } else {
                 for mem in included_mems {
-                    content.push_str(&format!("• {}\n", mem));
+                    // content.push_str(&format!("• {}\n", mem)); // 반복문 안에서 format 사용 시 성능 저하 우려
+                    write!(content, "• {}\n", mem).unwrap(); // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
                 }
             }
 
