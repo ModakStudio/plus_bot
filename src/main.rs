@@ -120,7 +120,7 @@ async fn main() {
     // 캐시 동기화 스레드 구동
     let cache_tx = cache::start_cache_thread(shared_cache.clone(), client.http.clone(), guild_id);
 
-    // 💡 여러 번 열고 닫던 전역 데이터(client.data) 구조를 스코프 블록 하나로 일괄 처리
+    // 클라이언트 데이터에 캐시 및 캐시 동기화 채널 저장
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());

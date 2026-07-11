@@ -129,7 +129,7 @@ pub async fn run_project_command(
             let exists = cache
                 .project_mapping
                 .keys()
-                .any(|k| k.contains(&project_name));
+                .any(|k| k == &project_name);
             if exists {
                 command
                     .edit_response(
@@ -266,7 +266,7 @@ pub async fn run_project_command(
                             .kind(ChannelType::Text)
                             .category(category.id);
                         let _ = guild_id.create_channel(&ctx.http, builder).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
 
                     let voice_builder = CreateChannel::new("🎙️ voice chat")
@@ -320,7 +320,7 @@ pub async fn run_project_command(
 
             if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
                 if let Some(category_id) = channel.parent_id {
-                    let exists = cache.project_mapping.keys().any(|k| k.contains(&new_name));
+                    let exists = cache.project_mapping.keys().any(|k| k == &new_name);
                     if exists {
                         command
                             .edit_response(
@@ -336,11 +336,21 @@ pub async fn run_project_command(
 
                     let mut old_name = String::new();
                     if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-                    {
-                        old_name = cat_channel.name.clone();
+                    {   
+                        let category_name: Vec<&str> = cat_channel.name.split("(PM: ").collect();
+                        old_name = category_name[0].trim().to_string();
                     }
 
-                    let builder = EditChannel::new().name(&new_name);
+                    let pm_name = match cache.project_pms.get(&old_name) {
+                        Some(pm_id) => cache
+                            .all_members
+                            .get(pm_id)
+                            .cloned()
+                            .unwrap_or_else(|| "Unknown PM".to_string()),
+                        None => "Unknown PM".to_string(),
+                    };
+                    let category_name = format!("{}(PM: {})", new_name, pm_name);
+                    let builder = EditChannel::new().name(&category_name);
 
                     match category_id.edit(&ctx.http, builder).await {
                         Ok(_) => {
@@ -424,9 +434,7 @@ pub async fn run_project_command(
                 command
                     .edit_response(
                         &ctx.http,
-                        EditInteractionResponse::new().content(
-                            "❌ 이 명령어는 서버 관리자(ADMINISTRATOR) 권한이 필요합니다.",
-                        ),
+                        EditInteractionResponse::new().content("❌ 이 명령어는 서버 관리자(ADMINISTRATOR) 권한이 필요합니다."),
                     )
                     .await?;
                 return Ok(());
@@ -435,56 +443,67 @@ pub async fn run_project_command(
             if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
                 if let Some(category_id) = channel.parent_id {
                     let mut category_name = String::new();
-                    if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-                    {
+                    if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await {
                         category_name = cat_channel.name.clone();
                     }
 
                     command
                         .edit_response(
                             &ctx.http,
-                            EditInteractionResponse::new()
-                                .content("🧹 프로젝트 채널들과 역할을 완전히 삭제합니다..."),
+                            EditInteractionResponse::new().content("🧹 프로젝트 채널들과 역할을 완전히 삭제합니다..."),
                         )
                         .await?;
 
-                    // 하위 채널 청소 (현재 명령어가 쳐진 채널 제외하고 순차 삭제)
+                    // 1. 하위 채널 청소 (현재 명령어가 쳐진 채널 제외하고 '확실히' 대기하며 삭제)
                     if let Ok(channels) = guild_id.channels(&ctx.http).await {
                         for (id, guild_channel) in &channels {
-                            if guild_channel.parent_id == Some(category_id)
-                                && *id != command.channel_id
-                            {
-                                let _ = guild_channel.id.delete(&ctx.http).await;
-                                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                            if guild_channel.parent_id == Some(category_id) && *id != command.channel_id {
+                                // ⚠️ 에러를 씹지 않고(?), 완전히 삭제가 끝날 때까지 동기적으로 기다립니다.
+                                if let Err(why) = guild_channel.id.delete(&ctx.http).await {
+                                    tracing::error!("하위 채널 삭제 실패: {:?}", why);
+                                }
+                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                             }
                         }
-                        // 마지막으로 현재 채널 삭제
-                        let _ = command.channel_id.delete(&ctx.http).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                        
+                        // 2. 명령어가 실행된 현재 채널 삭제
+                        if let Err(why) = command.channel_id.delete(&ctx.http).await {
+                            tracing::error!("현재 명령어 채널 삭제 실패: {:?}", why);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
 
-                    // 카테고리 자체 삭제
-                    let _ = category_id.delete(&ctx.http).await;
+                    // 3. 카테고리 자체 삭제 대기
+                    if let Err(why) = category_id.delete(&ctx.http).await {
+                        tracing::error!("카테고리 채널 삭제 실패: {:?}", why);
+                    }
 
-                    // 동명 역할 찾아서 삭제
+                    // 4. 동명 프로젝트 역할 찾아서 삭제 대기
                     let project_name = category_name
                         .split("(PM:")
                         .next()
                         .unwrap_or("")
                         .trim()
                         .to_string();
+                        
                     if let Ok(roles) = guild_id.roles(&ctx.http).await {
                         for role in roles.values() {
-                            if !project_name.is_empty()
-                                && role.name.to_lowercase() == project_name.to_lowercase()
-                            {
-                                let _ = guild_id.delete_role(&ctx.http, role.id).await;
+                            if !project_name.is_empty() && role.name.to_lowercase() == project_name.to_lowercase() {
+                                if let Err(why) = guild_id.delete_role(&ctx.http, role.id).await {
+                                    tracing::error!("프로젝트 역할 삭제 실패: {:?}", why);
+                                }
                                 break;
                             }
                         }
                     }
 
+                    // ⭐ [핵심 안정화 장치] 
+                    // 디스코드 API 서버 측에서 삭제 처리가 완료되고, 게이트웨이 백엔드에 반영되는 최소한의 물리적 시간을 벌어줍니다.
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                    // 5. 완벽히 비워진 상태에서 캐시 전체 갱신 요청
                     let _ = tx.send(CacheCommand::RefreshAll).await;
+                    
                 } else {
                     command.edit_response(&ctx.http, EditInteractionResponse::new().content("❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.")).await?;
                 }
