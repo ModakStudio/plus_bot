@@ -45,8 +45,10 @@ impl EventHandler for Handler {
         // 들어온 상호작용이 슬래시 커맨드(Command)일 때만 처리
         if let Interaction::Command(command) = interaction {
             match command.data.name.as_str() {
-                "help" => { 
-                    if let Err(why) = commands::help::run_help_command(&ctx, &command, self.guild_id).await {
+                "help" => {
+                    if let Err(why) =
+                        commands::help::run_help_command(&ctx, &command, self.guild_id).await
+                    {
                         error!("help 커맨드 실행 오류: {:?}", why);
                     }
                 }

@@ -257,7 +257,11 @@ pub async fn run_project_command(
             let category_name = format!("{}(PM: {})", project_name, pm_name);
             let category_builder = CreateChannel::new(&category_name)
                 .kind(ChannelType::Category)
-                .permissions(vec![deny_everyone.clone(), allow_project_role.clone(), allow_bot.clone()]);
+                .permissions(vec![
+                    deny_everyone.clone(),
+                    allow_project_role.clone(),
+                    allow_bot.clone(),
+                ]);
 
             match guild_id.create_channel(&ctx.http, category_builder).await {
                 Ok(category) => {
@@ -291,7 +295,7 @@ pub async fn run_project_command(
                                 allow_bot.clone(),
                             ]);
                         }
-                        
+
                         let _ = guild_id.create_channel(&ctx.http, builder).await;
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
