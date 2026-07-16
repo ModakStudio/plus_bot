@@ -4,6 +4,8 @@ use serenity::all::{
 use serenity::builder::EditInteractionResponse;
 use serenity::prelude::*;
 
+use std::fmt::Write;
+
 pub fn register_help_command() -> CreateCommand {
     CreateCommand::new("help")
         .description("봇의 모든 명령어와 사용법을 안내합니다.")
@@ -44,14 +46,15 @@ pub async fn run_help_command(
     } else {
         for cmd in commands {
             // 명령어 이름, 설명, 하위 명령어 목록을 임베드 필드로 추가
-            let mut field_value = String::new(); // = format!("</{}:{}>\n", cmd.name, cmd.id);
-            field_value.push_str(&format!("{}\n", cmd.description));
-            // let mut field_value = format!("{}\n", cmd.description);
-
+            let mut field_value = String::new();
+            write!(field_value, "{}\n", cmd.description).unwrap(); // field_value.push_str(&format!("{}\n", cmd.description));
+            
             // 하위 명령어가 있는 경우, 하위 명령어 목록을 추가
             let mut subcommands = Vec::new();
             for option in &cmd.options {
                 if option.kind == CommandOptionType::SubCommand {
+                    // 하위 명령어 이름, 설명을 포맷팅하여 목록에 추가
+                    // 벡터에 추가하므로 format!을 사용하여 문자열 생성
                     subcommands.push(format!(
                         "`/{} {}` : {}",
                         cmd.name, option.name, option.description
@@ -62,12 +65,11 @@ pub async fn run_help_command(
             if !subcommands.is_empty() {
                 field_value.push_str("\n**세부 명령어:**\n");
                 for sub in subcommands {
-                    field_value.push_str(&format!("└ {}\n", sub));
+                    write!(field_value, "└ {}\n", sub).unwrap();
                 }
             }
 
             let field_title = format!("/{}", cmd.name.to_uppercase());
-            // let field_title = format!("</{}:{}>", cmd.name, cmd.id);
             embed = embed.field(field_title, field_value, false);
         }
     }
