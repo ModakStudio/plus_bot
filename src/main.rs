@@ -90,7 +90,7 @@ impl EventHandler for Handler {
             }
         }
     }
-    
+
     async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
         if new_member.user.bot {
             return; // 봇은 캐시에서 제외
@@ -115,9 +115,7 @@ impl EventHandler for Handler {
     ) {
         // 서버에서 멤버가 나가거나 킥될 시 캐시에서 제거
         if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
-            let _ = tx
-                .send(CacheCommand::RefreshAll)
-                .await;
+            let _ = tx.send(CacheCommand::RefreshAll).await;
         }
     }
 }
