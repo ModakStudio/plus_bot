@@ -90,6 +90,36 @@ impl EventHandler for Handler {
             }
         }
     }
+    
+    async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
+        if new_member.user.bot {
+            return; // 봇은 캐시에서 제외
+        }
+
+        if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+            let _ = tx
+                .send(CacheCommand::UpdateSingleMember {
+                    user_id: new_member.user.id,
+                    display_name: new_member.display_name().to_string(),
+                })
+                .await;
+        }
+    }
+
+    async fn guild_member_removal(
+        &self,
+        ctx: Context,
+        _guild_id: GuildId,
+        _user: serenity::all::User,
+        _member_data_if_available: Option<Member>,
+    ) {
+        // 서버에서 멤버가 나가거나 킥될 시 캐시에서 제거
+        if let Some(tx) = ctx.data.read().await.get::<CacheNotifyKey>() {
+            let _ = tx
+                .send(CacheCommand::RefreshAll)
+                .await;
+        }
+    }
 }
 
 #[tokio::main]
