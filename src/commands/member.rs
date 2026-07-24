@@ -158,7 +158,18 @@ pub async fn run_member_command(
             let included_set = cache.project_mapping.get(&project_name);
             let mut included_mems = Vec::new();
 
-            let pm_id = cache.project_pms.get(&project_name).unwrap();
+            let pm_id = match cache.project_pms.get(&project_name) {
+                Some(id) => id,
+                None => {
+                    command
+                        .edit_response(
+                            &ctx.http,
+                            EditInteractionResponse::new().content("❌ 프로젝트 PM을 찾을 수 없습니다. 프로젝트 카테고리에서 명령어를 사용해주세요."),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
             included_mems.push(cache.all_members.get(&pm_id).unwrap().to_string());
 
             for (user_id, username) in &cache.all_members {
