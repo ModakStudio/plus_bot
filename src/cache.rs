@@ -119,8 +119,13 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id
                 project_mapping: HashMap::new(),
                 project_pms: HashMap::new(),
             };
+
             // 맴버 별로 순회하면서 해당 프로젝트에 참여중인지 아닌지 확인
             for member in members {
+                if member.user.bot {
+                    continue; // 봇은 캐시에서 제외
+                }
+
                 let user_id = member.user.id; // 💡 유저 고유 ID 추출
                 let username = member.display_name(); // 서버에 표시되는 이름 추출
 

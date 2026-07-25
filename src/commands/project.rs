@@ -479,6 +479,27 @@ pub async fn run_project_command(
                     if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
                     {
                         category_name = cat_channel.name.clone();
+
+                        // 프로젝트 내부인지 그냥 카테고리 내부인지 확인
+                        let project_name = category_name
+                            .split("(PM:")
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+
+                        // 프로젝트 매핑에 존재하지 않는다면, 그냥 카테고리 내부에서 명령어를 친 것임
+                        if cache.project_mapping.contains_key(&project_name) == false {
+                            command
+                                .edit_response(
+                                    &ctx.http,
+                                    EditInteractionResponse::new().content(
+                                        "❌ 프로젝트 카테고리 내부 채널에서 명령어를 입력해주세요.",
+                                    ),
+                                )
+                                .await?;
+                            return Ok(());
+                        }
                     }
 
                     command
@@ -549,6 +570,6 @@ pub async fn run_project_command(
         }
         _ => {}
     }
-    
+
     Ok(())
 }

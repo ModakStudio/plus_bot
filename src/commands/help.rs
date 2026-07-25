@@ -1,7 +1,9 @@
 use serenity::all::{
     CommandInteraction, CommandOptionType, CreateCommand, CreateEmbed, CreateEmbedFooter, GuildId,
 };
-use serenity::builder::EditInteractionResponse;
+use serenity::builder::{
+    CreateInteractionResponse, CreateInteractionResponseMessage, EditInteractionResponse,
+};
 use serenity::prelude::*;
 
 use std::fmt::Write;
@@ -17,7 +19,15 @@ pub async fn run_help_command(
     command: &CommandInteraction,
     guild_id: GuildId,
 ) -> serenity::Result<()> {
-    command.defer(&ctx.http).await?;
+    // 명령어 실행 시 즉시 응답을 지연시키고, 비공개 메시지로 처리
+    command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(
+                CreateInteractionResponseMessage::new().ephemeral(true), // 👈 비공개 설정
+            ),
+        )
+        .await?;
 
     let commands = match guild_id.get_commands(&ctx.http).await {
         Ok(cmds) => cmds,
@@ -48,7 +58,7 @@ pub async fn run_help_command(
             // 명령어 이름, 설명, 하위 명령어 목록을 임베드 필드로 추가
             let mut field_value = String::new();
             write!(field_value, "{}\n", cmd.description).unwrap(); // field_value.push_str(&format!("{}\n", cmd.description));
-            
+
             // 하위 명령어가 있는 경우, 하위 명령어 목록을 추가
             let mut subcommands = Vec::new();
             for option in &cmd.options {

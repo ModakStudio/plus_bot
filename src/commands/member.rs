@@ -158,7 +158,25 @@ pub async fn run_member_command(
             let included_set = cache.project_mapping.get(&project_name);
             let mut included_mems = Vec::new();
 
+            let pm_id = match cache.project_pms.get(&project_name) {
+                Some(id) => id,
+                None => {
+                    command
+                        .edit_response(
+                            &ctx.http,
+                            EditInteractionResponse::new().content("❌ 프로젝트 PM을 찾을 수 없습니다. 프로젝트 카테고리에서 명령어를 사용해주세요."),
+                        )
+                        .await?;
+                    return Ok(());
+                }
+            };
+            included_mems.push(cache.all_members.get(&pm_id).unwrap().to_string());
+
             for (user_id, username) in &cache.all_members {
+                if *user_id == *pm_id {
+                    continue; // PM은 이미 추가했으므로 건너뛰기
+                }
+
                 if let Some(set) = included_set {
                     if set.contains(user_id) {
                         included_mems.push(username.clone());
@@ -167,10 +185,18 @@ pub async fn run_member_command(
             }
 
             // 참여 인원 명단을 문자열로 포맷팅
-            let mut content = format!("📌 **'{}' 프로젝트 참여 인원 명단**\n", project_name);
+            let mut content = String::new();
             if included_mems.is_empty() {
-                content.push_str("현재 등록된 멤버가 없습니다.\n");
+                // 프로젝트에 참여 인원이 없을 경우 안내 메시지
+                content.push_str(&format!(
+                    "❌ 서버에서 '{}' 프로젝트에 해당하는 역할을 찾을 수 없습니다.\n",
+                    project_name
+                ));
             } else {
+                content.push_str(&format!(
+                    "📌 **'{}' 프로젝트 참여 인원 명단**\n",
+                    project_name
+                ));
                 for mem in included_mems {
                     // content.push_str(&format!("• {}\n", mem)); // 반복문 안에서 format 사용 시 성능 저하 우려
                     write!(content, "• {}\n", mem).unwrap(); // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
@@ -267,10 +293,16 @@ pub async fn run_member_command(
                     }
                 }
             }
+            target_user_ids.dedup(); // 중복 유저 ID 제거
 
             let mut processed_users = Vec::new();
 
             for user_id in target_user_ids {
+                // 봇이나 서버에 존재하지 않는 유저는 캐시에 없으므로 건너뛰기
+                if cache.all_members.get(&user_id).is_none() {
+                    continue;
+                }
+
                 if is_add {
                     // 추가 모드일 때 이미 존재하는 유저는 건너뛰기
                     if already_members.contains(&user_id) {
@@ -307,7 +339,7 @@ pub async fn run_member_command(
                     .edit_response(
                         &ctx.http,
                         EditInteractionResponse::new()
-                            .content("❌ 변동 사항이 없거나 작업 가능한 대상 유저가 없습니다."),
+                            .content("❌ 변경된 정보가 없거나 적용할 대상 유저가 없습니다."),
                     )
                     .await?;
             } else {
