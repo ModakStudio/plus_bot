@@ -263,6 +263,16 @@ pub async fn run_member_command(
             if let CommandDataOptionValue::SubCommand(sub_opts) = &subcommand_option.value {
                 for opt in sub_opts {
                     if let CommandDataOptionValue::User(user_id) = opt.value {
+                        if user_id == command.user.id {
+                            command
+                                .edit_response(
+                                    &ctx.http,
+                                    EditInteractionResponse::new()
+                                        .content("❌ 본인을 추가하거나 제거할 수 없습니다."),
+                                )
+                                .await?;
+                            return Ok(());
+                        }
                         target_user_ids.push(user_id);
                     }
                 }
