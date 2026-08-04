@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use super::env::*;
 
+#[derive(Debug, Clone)]
 pub struct AbilityScore {
     pub fe: u8,
     pub be: u8,
@@ -12,6 +13,7 @@ pub struct AbilityScore {
     pub ai: u8,
 }
 
+#[derive(Debug, Clone)]
 pub struct Memeber {
     pub id: String,
     pub name: String,
@@ -19,11 +21,11 @@ pub struct Memeber {
     pub email: String,
     pub phone_number: String,
     pub ability_score: AbilityScore,
-    pub tier: u8
+    pub tier: u8,
 }
 
-impl From<Value> for Memeber {
-    fn from(value: Value) -> Self {
+impl From<&Value> for Memeber {
+    fn from(value: &Value) -> Self {
         let properties = &value["properties"];
         let ability_score = AbilityScore {
             fe: properties["FE"]["number"].as_u64().unwrap_or(0) as u8,
@@ -65,7 +67,7 @@ impl From<Value> for Memeber {
     }
 }
 
-pub async fn get_members_id() {
+pub async fn get_members_id() -> Result<Vec<Memeber>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -95,7 +97,10 @@ pub async fn get_members_id() {
                 "Notion API 요청이 실패했습니다. Status: {}",
                 database_response.status()
             );
-            return;
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Notion API 요청 실패",
+            )));
         }
     };
 
@@ -111,13 +116,30 @@ pub async fn get_members_id() {
         .await
         .expect("Notion API 요청에 실패했습니다.");
 
-    let response_text = data_source_response
-        .text()
-        .await
-        .expect("Notion API 응답을 텍스트로 읽는 데 실패했습니다.");
+    match data_source_response.status() {
+        reqwest::StatusCode::OK => {
+            let json: Value = data_source_response
+                .json()
+                .await
+                .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
+            let members: Vec<Memeber> = json["results"]
+                .as_array()
+                .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
+                .iter()
+                .map(|item| item.into())
+                .collect();
 
-    let response_json: Value = serde_json::from_str(&response_text)
-        .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
-
-    println!("Notion API 응답: {}", response_json);
+            Ok(members)
+        }
+        _ => {
+            eprintln!(
+                "Notion API 요청이 실패했습니다. Status: {}",
+                data_source_response.status()
+            );
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Notion API 요청 실패",
+            )))
+        }
+    }
 }
