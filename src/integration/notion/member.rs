@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::env::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AbilityScore {
     pub fe: u8,
     pub be: u8,
@@ -13,7 +13,7 @@ pub struct AbilityScore {
     pub ai: u8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Member {
     pub id: String,
     pub name: String,
@@ -142,4 +142,18 @@ pub async fn get_members() -> Result<Vec<Member>, Box<dyn std::error::Error>> {
             )))
         }
     }
+}
+
+pub async fn get_member_by_id(member_id: String) -> Result<Member, Box<dyn std::error::Error>> {
+    let members = get_members().await?;
+
+    members
+        .into_iter()
+        .find(|member| member.id == member_id)
+        .ok_or_else(|| {
+            Box::<dyn std::error::Error>::from(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Member not found",
+            ))
+        })
 }
