@@ -1,9 +1,69 @@
 use reqwest;
 use serde_json::Value;
 
-use super::env::*;
+use super::{env::*, member::Member};
 
-pub async fn get_projects() -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+#[derive(Debug, Clone)]
+pub enum Status {
+    NotStarted,  // 시작 전
+    InProgress,  // 진행 중
+    Maintenance, // 유지보유
+    Completed,   // 완료
+}
+
+impl From<&str> for Status {
+    fn from(value: &str) -> Self {
+        match value {
+            "시작 전" => Status::NotStarted,
+            "진행 중" => Status::InProgress,
+            "유지보유" => Status::Maintenance,
+            "완료" => Status::Completed,
+            _ => Status::NotStarted, // 기본값으로 NotStarted를 반환
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub status: Status,
+    pub github: String,
+    pub pm: Member,
+    pub participants: Vec<Member>,
+}
+
+impl From<&Value> for Project {
+    fn from(value: &Value) -> Self {
+        let properties = &value["properties"];
+
+        Project {
+            id: value["id"].as_str().unwrap_or_default().to_string(),
+            name: properties["name"]["title"][0]["text"]["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            status: Status::from(
+                properties["status"]["select"]["name"]
+                    .as_str()
+                    .unwrap_or_default(),
+            ),
+            github: properties["github"]["url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            pm: Member::from(&properties["PM"]["people"][0]),
+            participants: properties["participants"]["people"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(Member::from)
+                .collect(),
+        }
+    }
+}
+
+pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -47,11 +107,30 @@ pub async fn get_projects() -> Result<Vec<Value>, Box<dyn std::error::Error>> {
         .send()
         .await?;
 
-    let data_source_response_body: Value = data_source_response.json().await?;
-    let data_source_response_body_pretty_json =
-        serde_json::to_string_pretty(&data_source_response_body)
-            .expect("Failed to serialize response body as JSON");
-    println!("Response:\n{}", data_source_response_body_pretty_json);
+    match data_source_response.status() {
+        reqwest::StatusCode::OK => {
+            let json: Value = data_source_response
+                .json()
+                .await
+                .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
+            let projects: Vec<Project> = json["results"]
+                .as_array()
+                .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
+                .iter()
+                .map(Project::from)
+                .collect();
 
-    Ok(Vec::new())
+            Ok(projects)
+        }
+        _ => {
+            eprintln!(
+                "Notion API 요청이 실패했습니다. Status: {}",
+                data_source_response.status()
+            );
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Notion API 요청 실패",
+            )))
+        }
+    }
 }
