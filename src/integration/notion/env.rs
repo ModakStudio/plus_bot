@@ -15,3 +15,9 @@ pub fn get_notion_member_database_id() -> String {
     std::env::var("NOTION_MEMBER_DATABASE_ID")
         .expect("NOTION_MEMBER_DATABASE_ID 환경 변수가 설정되어 있지 않습니다.")
 }
+
+pub fn get_notion_project_database_id() -> String {
+    dotenv().ok();
+    std::env::var("NOTION_PROJECT_DATABASE_ID")
+        .expect("NOTION_PROJECT_DATABASE_ID 환경 변수가 설정되어 있지 않습니다.")
+}
