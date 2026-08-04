@@ -67,7 +67,7 @@ impl From<&Value> for Memeber {
     }
 }
 
-pub async fn get_members_id() -> Result<Vec<Memeber>, Box<dyn std::error::Error>> {
+pub async fn get_members() -> Result<Vec<Memeber>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
