@@ -14,7 +14,7 @@ pub struct AbilityScore {
 }
 
 #[derive(Debug, Clone)]
-pub struct Memeber {
+pub struct Member {
     pub id: String,
     pub name: String,
     pub github: String,
@@ -24,7 +24,7 @@ pub struct Memeber {
     pub tier: u8,
 }
 
-impl From<&Value> for Memeber {
+impl From<&Value> for Member {
     fn from(value: &Value) -> Self {
         let properties = &value["properties"];
         let ability_score = AbilityScore {
@@ -36,7 +36,7 @@ impl From<&Value> for Memeber {
             ai: properties["AI"]["number"].as_u64().unwrap_or(0) as u8,
         };
 
-        Memeber {
+        Member {
             id: properties["member"]["people"][0]["id"]
                 .as_str()
                 .unwrap_or_default()
@@ -67,7 +67,7 @@ impl From<&Value> for Memeber {
     }
 }
 
-pub async fn get_members() -> Result<Vec<Memeber>, Box<dyn std::error::Error>> {
+pub async fn get_members() -> Result<Vec<Member>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -122,7 +122,7 @@ pub async fn get_members() -> Result<Vec<Memeber>, Box<dyn std::error::Error>> {
                 .json()
                 .await
                 .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
-            let members: Vec<Memeber> = json["results"]
+            let members: Vec<Member> = json["results"]
                 .as_array()
                 .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
                 .iter()
