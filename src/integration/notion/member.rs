@@ -3,6 +3,68 @@ use serde_json::Value;
 
 use super::env::*;
 
+pub struct AbilityScore {
+    pub fe: u8,
+    pub be: u8,
+    pub system: u8,
+    pub android: u8,
+    pub ios: u8,
+    pub ai: u8,
+}
+
+pub struct Memeber {
+    pub id: String,
+    pub name: String,
+    pub github: String,
+    pub email: String,
+    pub phone_number: String,
+    pub ability_score: AbilityScore,
+    pub tier: u8
+}
+
+impl From<Value> for Memeber {
+    fn from(value: Value) -> Self {
+        let properties = &value["properties"];
+        let ability_score = AbilityScore {
+            fe: properties["FE"]["number"].as_u64().unwrap_or(0) as u8,
+            be: properties["BE"]["number"].as_u64().unwrap_or(0) as u8,
+            system: properties["System"]["number"].as_u64().unwrap_or(0) as u8,
+            android: properties["Android"]["number"].as_u64().unwrap_or(0) as u8,
+            ios: properties["iOS"]["number"].as_u64().unwrap_or(0) as u8,
+            ai: properties["AI"]["number"].as_u64().unwrap_or(0) as u8,
+        };
+
+        Memeber {
+            id: properties["member"]["people"][0]["id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            name: properties["member"]["people"][0]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            github: properties["github"]["url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            email: properties["email"]["email"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            phone_number: properties["phone_number"]["phone_number"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+            ability_score,
+            tier: properties["tier"]["formula"]["number"]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<u8>()
+                .unwrap_or(0),
+        }
+    }
+}
+
 pub async fn get_members_id() {
     let client = reqwest::Client::new();
 
