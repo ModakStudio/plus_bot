@@ -1,27 +1,18 @@
 use reqwest;
 use serde_json::Value;
 
-use dotenv::dotenv;
+use super::env::*;
 
 pub async fn get_members_id() {
-    dotenv().ok();
-
-    let notion_token =
-        std::env::var("NOTION_TOKEN").expect("NOTION_TOKEN 환경 변수가 설정되어 있지 않습니다.");
-    let notion_version = std::env::var("NOTION_VERSION")
-        .expect("NOTION_VERSION 환경 변수가 설정되어 있지 않습니다.");
-    let notion_member_database_id = std::env::var("NOTION_MEMBER_DATABASE_ID")
-        .expect("NOTION_MEMBER_DATABASE_ID 환경 변수가 설정되어 있지 않습니다.");
-
     let client = reqwest::Client::new();
 
     let database_response = client
         .get(format!(
             "https://api.notion.com/v1/databases/{}",
-            notion_member_database_id
+            get_notion_member_database_id()
         ))
-        .header("Authorization", format!("Bearer {}", notion_token))
-        .header("Notion-Version", notion_version.clone())
+        .header("Authorization", format!("Bearer {}", get_notion_token()))
+        .header("Notion-Version", get_notion_version())
         .send()
         .await
         .expect("Notion API 요청에 실패했습니다.");
@@ -51,8 +42,8 @@ pub async fn get_members_id() {
             "https://api.notion.com/v1/data_sources/{}/query",
             data_source_id
         ))
-        .header("Authorization", format!("Bearer {}", notion_token))
-        .header("Notion-Version", notion_version.clone())
+        .header("Authorization", format!("Bearer {}", get_notion_token()))
+        .header("Notion-Version", get_notion_version())
         .header("Content-Type", "application/json")
         .send()
         .await
