@@ -1,5 +1,8 @@
+use futures::future::join_all;
 use reqwest;
 use serde_json::Value;
+
+use crate::integration::notion::member::get_member_by_id;
 
 use super::{env::*, member::Member};
 
@@ -33,8 +36,8 @@ pub struct Project {
     pub participants: Vec<Member>,
 }
 
-impl From<&Value> for Project {
-    fn from(value: &Value) -> Self {
+impl Project {
+    pub async fn from_value(value: &Value) -> Self {
         let properties = &value["properties"];
 
         Project {
@@ -52,13 +55,27 @@ impl From<&Value> for Project {
                 .as_str()
                 .unwrap_or_default()
                 .to_string(),
-            pm: Member::from(&properties["PM"]["people"][0]),
-            participants: properties["participants"]["people"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .map(Member::from)
-                .collect(),
+            pm: get_member_by_id(
+                properties["PM"]["people"][0]["id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+            .await
+            .unwrap_or_default(),
+            participants: join_all(
+                properties["participants"]["people"]
+                    .as_array()
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .map(|member| {
+                        get_member_by_id(member["id"].as_str().unwrap_or_default().to_string())
+                    }),
+            )
+            .await
+            .into_iter()
+            .map(|m| m.unwrap_or_default())
+            .collect(),
         }
     }
 }
@@ -113,12 +130,14 @@ pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> 
                 .json()
                 .await
                 .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
-            let projects: Vec<Project> = json["results"]
-                .as_array()
-                .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
-                .iter()
-                .map(Project::from)
-                .collect();
+            let projects: Vec<Project> = join_all(
+                json["results"]
+                    .as_array()
+                    .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
+                    .iter()
+                    .map(Project::from_value),
+            )
+            .await;
 
             Ok(projects)
         }
