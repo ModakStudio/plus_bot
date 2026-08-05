@@ -153,3 +153,46 @@ pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> 
         }
     }
 }
+
+pub async fn create_project(project: &Project) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(&format!("https://api.notion.com/v1/pages",))
+        .header("Authorization", format!("Bearer {}", get_notion_token()))
+        .header("Notion-Version", get_notion_version())
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "parent": { "database_id": get_notion_project_database_id() },
+            "template": {
+                "type": "default"
+            },
+            "properties": {
+                "name": { "title": [{ "text": { "content": project.name } }] },
+                "status": { "select": { "name": match project.status {
+                    Status::NotStarted => "시작 전",
+                    Status::InProgress => "진행 중",
+                    Status::Maintenance => "유지보유",
+                    Status::Completed => "완료",
+                } } },
+                "github": { "url": project.github },
+                "PM": { "people": [{ "id": project.pm.id }] },
+                "participants": { "people": project.participants.iter().map(|p| serde_json::json!({ "id": p.id })).collect::<Vec<_>>() }
+            }
+        }))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        eprintln!(
+            "Notion API 요청이 실패했습니다. Status: {}",
+            response.status()
+        );
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Notion API 요청 실패",
+        )))
+    }
+}
