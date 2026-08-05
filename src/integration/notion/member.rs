@@ -22,6 +22,7 @@ pub struct Member {
     pub phone_number: String,
     pub ability_score: AbilityScore,
     pub tier: u8,
+    pub discord_id: String,
 }
 
 impl From<&Value> for Member {
@@ -63,6 +64,10 @@ impl From<&Value> for Member {
                 .unwrap_or("0")
                 .parse::<u8>()
                 .unwrap_or(0),
+            discord_id: properties["discord_id"]["rich_text"][0]["text"]["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
         }
     }
 }
@@ -150,6 +155,22 @@ pub async fn get_member_by_id(member_id: String) -> Result<Member, Box<dyn std::
     members
         .into_iter()
         .find(|member| member.id == member_id)
+        .ok_or_else(|| {
+            Box::<dyn std::error::Error>::from(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Member not found",
+            ))
+        })
+}
+
+pub async fn get_member_by_discord_id(
+    discord_id: String,
+) -> Result<Member, Box<dyn std::error::Error>> {
+    let members = get_members().await?;
+
+    members
+        .into_iter()
+        .find(|member| member.discord_id == discord_id)
         .ok_or_else(|| {
             Box::<dyn std::error::Error>::from(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
