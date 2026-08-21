@@ -14,12 +14,14 @@ use serenity::prelude::TypeMapKey;
 
 use tokio::sync::{mpsc, RwLock};
 
+use crate::integration::notion::project::{Project, Status, get_projects};
+use crate::integration::notion::member::NotionMember;
+
 //봇이 전체적으로 공유할 캐쉬 구조체
 pub struct BotCache {
     // 유저 아이디로 관리
     pub all_members: HashMap<UserId, String>,
-    pub project_mapping: HashMap<String, HashSet<UserId>>,
-    pub project_pms: HashMap<String, UserId>,
+    pub project_mapping: HashSet<Project>,
 }
 
 // 캐시 스레드가 처리할 명령 목록
@@ -116,57 +118,24 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>, http: &Arc<Http>, guild_id
         if let Ok(server_roles) = guild_id.roles(&http).await {
             let mut new_cache = BotCache {
                 all_members: HashMap::new(),
-                project_mapping: HashMap::new(),
-                project_pms: HashMap::new(),
+                project_mapping: HashSet::new(),
             };
-            // 맴버 별로 순회하면서 해당 프로젝트에 참여중인지 아닌지 확인
-            for member in members {
-                let user_id = member.user.id; // 💡 유저 고유 ID 추출
-                let username = member.display_name(); // 서버에 표시되는 이름 추출
 
-                new_cache.all_members.insert(user_id, username.to_string());
+            match get_projects().await {
+                Ok(projects) => {
+                    new_cache.project_mapping = projects.into_iter().collect();
 
-                //맴버가 가진 역할과 프로젝트명 비교
-                for role_id in &member.roles {
-                    // 포함된 프로젝트에 매핑
-                    if let Some(role) = server_roles.get(role_id) {
-                        new_cache
-                            .project_mapping
-                            .entry(role.name.clone())
-                            .or_insert_with(HashSet::new)
-                            .insert(user_id);
+                    //새로 갱신한 값 덮어쓰기
+                    {
+                        let mut lock = cache.write().await;
+                        *lock = new_cache;
                     }
+                    println!("백그라운드 데이터 갱신 완료");
+                }
+                Err(e) => {
+                    eprintln!("프로젝트 목록을 가져오는 데 실패했습니다: {}", e);
                 }
             }
-            // 프로젝트 목록을 받아와서 PM추출하기
-            if let Ok(channels) = guild_id.channels(&http).await {
-                for (_channel_id, channel) in channels {
-                    // 카테고리(프로젝트)이면서 이름에 "(PM: " 택스트가 붙어 있는지 필터링
-                    if channel.kind == ChannelType::Category && channel.name.contains("(PM: ") {
-                        //프로젝트명과 pm이름 분리
-                        let parts: Vec<&str> = channel.name.split("(PM: ").collect();
-                        if parts.len() == 2 {
-                            let project_name = parts[0].to_string();
-                            let pm_name = parts[1].trim_end_matches(')');
-
-                            // pm이름을 이용해 user_id 역추척하기
-                            if let Some((&pm_id, _)) = new_cache
-                                .all_members
-                                .iter()
-                                .find(|(_, name)| **name == pm_name)
-                            {
-                                new_cache.project_pms.insert(project_name, pm_id);
-                            }
-                        }
-                    }
-                }
-            }
-            //새로 갱신한 값 덮어쓰기
-            {
-                let mut lock = cache.write().await;
-                *lock = new_cache;
-            }
-            println!("백그라운드 데이터 갱신 완료");
         }
     }
 }

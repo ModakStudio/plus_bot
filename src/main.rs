@@ -1,5 +1,6 @@
 mod cache;
 mod commands; // 봇이 관리할 캐시 모듈 등록
+mod integration;
 
 use std::collections::HashMap;
 use std::env;

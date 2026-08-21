@@ -14,7 +14,7 @@ pub struct AbilityScore {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Member {
+pub struct NotionMember {
     pub id: String,
     pub name: String,
     pub github: String,
@@ -25,7 +25,7 @@ pub struct Member {
     pub discord_id: String,
 }
 
-impl From<&Value> for Member {
+impl From<&Value> for NotionMember {
     fn from(value: &Value) -> Self {
         let properties = &value["properties"];
         let ability_score = AbilityScore {
@@ -37,7 +37,7 @@ impl From<&Value> for Member {
             ai: properties["AI"]["number"].as_u64().unwrap_or(0) as u8,
         };
 
-        Member {
+        NotionMember {
             id: properties["member"]["people"][0]["id"]
                 .as_str()
                 .unwrap_or_default()
@@ -72,7 +72,7 @@ impl From<&Value> for Member {
     }
 }
 
-pub async fn get_members() -> Result<Vec<Member>, Box<dyn std::error::Error>> {
+pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -127,7 +127,7 @@ pub async fn get_members() -> Result<Vec<Member>, Box<dyn std::error::Error>> {
                 .json()
                 .await
                 .expect("Notion API 응답을 JSON으로 파싱하는 데 실패했습니다.");
-            let members: Vec<Member> = json["results"]
+            let members: Vec<NotionMember> = json["results"]
                 .as_array()
                 .expect("Notion API 응답에서 results 배열을 추출하는 데 실패했습니다.")
                 .iter()
@@ -149,7 +149,7 @@ pub async fn get_members() -> Result<Vec<Member>, Box<dyn std::error::Error>> {
     }
 }
 
-pub async fn get_member_by_id(member_id: String) -> Result<Member, Box<dyn std::error::Error>> {
+pub async fn get_member_by_id(member_id: String) -> Result<NotionMember, Box<dyn std::error::Error>> {
     let members = get_members().await?;
 
     members
@@ -165,7 +165,7 @@ pub async fn get_member_by_id(member_id: String) -> Result<Member, Box<dyn std::
 
 pub async fn get_member_by_discord_id(
     discord_id: String,
-) -> Result<Member, Box<dyn std::error::Error>> {
+) -> Result<NotionMember, Box<dyn std::error::Error>> {
     let members = get_members().await?;
 
     members
