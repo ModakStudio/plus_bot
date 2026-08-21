@@ -72,7 +72,7 @@ impl From<&Value> for NotionMember {
     }
 }
 
-pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -149,9 +149,7 @@ pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Erro
     }
 }
 
-pub async fn get_member_by_id(
-    member_id: String,
-) -> Result<NotionMember, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_member_by_id(member_id: String) -> Result<NotionMember, Box<dyn std::error::Error>> {
     let members = get_members().await?;
 
     members
@@ -167,7 +165,7 @@ pub async fn get_member_by_id(
 
 pub async fn get_member_by_discord_id(
     discord_id: String,
-) -> Result<NotionMember, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<NotionMember, Box<dyn std::error::Error>> {
     let members = get_members().await?;
 
     members
