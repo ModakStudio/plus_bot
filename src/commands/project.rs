@@ -7,7 +7,12 @@ use serenity::model::channel::{
 use serenity::model::id::RoleId;
 use serenity::prelude::*;
 
+use super::ChannelManager;
+
 use crate::cache::{CacheCommand, CacheNotifyKey};
+
+use crate::integration::notion::project::*;
+use crate::integration::notion::member::*;
 
 pub fn register_project_command() -> CreateCommand {
     CreateCommand::new("project")
@@ -124,9 +129,15 @@ pub async fn run_project_command(
                     .await?;
                 return Ok(());
             }
-
             // 동명의 프로젝트 검증
-            let exists = cache.project_mapping.keys().any(|k| k == &project_name);
+            let mut exists = false;
+            for project in &cache.project_mapping {
+                if project.name.to_lowercase() == project_name.to_lowercase() {
+                    exists = true;
+                    break;
+                }
+            }
+
             if exists {
                 command
                     .edit_response(
@@ -140,192 +151,15 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            command
-                .edit_response(
-                    &ctx.http,
-                    EditInteractionResponse::new().content(format!(
-                        "🏗️ '{}' 프로젝트 생성을 시작합니다. 세팅 중...",
-                        project_name
-                    )),
-                )
-                .await?;
-
-            // 🤖 봇 자신 ID 가져오기
-            let bot_id = match ctx.http.get_current_user().await {
-                Ok(user) => user.id,
-                Err(why) => {
-                    command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new()
-                                .content(format!("❌ 봇 정보를 가져오지 못했습니다: {:?}", why)),
-                        )
-                        .await?;
-                    return Ok(());
-                }
+            // 필요한 컨텍스트를 구조체로 묶기
+            let channel_manager = ChannelManager {
+                ctx,
+                guild_id,
+                command,
+                cache,
+                tx,
             };
-
-            // 역할 생성
-            let role_builder = EditRole::new().name(&project_name);
-            let project_role = match guild_id.create_role(&ctx.http, role_builder).await {
-                Ok(role) => role,
-                Err(why) => {
-                    command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new()
-                                .content(format!("❌ 역할 생성 실패: {:?}", why)),
-                        )
-                        .await?;
-                    return Ok(());
-                }
-            };
-
-            // 명령어를 실행한 멤버에게 역할 부여
-            if let Err(why) = ctx
-                .http
-                .add_member_role(guild_id, command.user.id, project_role.id, None)
-                .await
-            {
-                println!("⚠️ [generate] 유저에게 역할 부여 실패: {:?}", why);
-            }
-
-            // 권한 오버라이트 설정
-            let everyone_role_id = RoleId::new(guild_id.get());
-            let deny_everyone = PermissionOverwrite {
-                allow: Permissions::empty(),
-                deny: Permissions::VIEW_CHANNEL,
-                kind: PermissionOverwriteType::Role(everyone_role_id),
-            };
-
-            let allow_project_role = PermissionOverwrite {
-                allow: Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES,
-                deny: Permissions::empty(),
-                kind: PermissionOverwriteType::Role(project_role.id),
-            };
-
-            let allow_bot = PermissionOverwrite {
-                allow: Permissions::VIEW_CHANNEL
-                    | Permissions::SEND_MESSAGES
-                    | Permissions::MANAGE_CHANNELS,
-                deny: Permissions::empty(),
-                kind: PermissionOverwriteType::Member(bot_id),
-            };
-
-            // 프로젝트 멤버들의 채팅을 막기 위한 오버라이트 (View만 허용, Send 차단)
-            let readonly_project_role = PermissionOverwrite {
-                allow: Permissions::VIEW_CHANNEL,
-                deny: Permissions::SEND_MESSAGES, // 👈 깃허브, 정보 채널 등에서 발언권 차단
-                kind: PermissionOverwriteType::Role(project_role.id),
-            };
-
-            // PM(명령어 호출자)에게만 발언권을 주기 위한 오버라이트
-            let allow_pm = PermissionOverwrite {
-                allow: Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES,
-                deny: Permissions::empty(),
-                kind: PermissionOverwriteType::Member(command.user.id), // 👈 PM 개인 유저 ID
-            };
-
-            // PM 이름 빌드 및 캐시 동기화
-            let pm_name = match cache.all_members.get(&command.user.id) {
-                Some(name) => name.clone(),
-                None => {
-                    let latest_name = command
-                        .member
-                        .as_ref()
-                        .and_then(|m| m.nick.clone())
-                        .unwrap_or_else(|| {
-                            command
-                                .user
-                                .global_name
-                                .clone()
-                                .unwrap_or_else(|| command.user.name.clone())
-                        });
-
-                    let _ = tx
-                        .send(CacheCommand::UpdateSingleMember {
-                            user_id: command.user.id,
-                            display_name: command.user.name.clone(),
-                        })
-                        .await;
-
-                    latest_name
-                }
-            };
-
-            // 카테고리 생성
-            let category_name = format!("{}(PM: {})", project_name, pm_name);
-            let category_builder = CreateChannel::new(&category_name)
-                .kind(ChannelType::Category)
-                .permissions(vec![
-                    deny_everyone.clone(),
-                    allow_project_role.clone(),
-                    allow_bot.clone(),
-                ]);
-
-            match guild_id.create_channel(&ctx.http, category_builder).await {
-                Ok(category) => {
-                    let text_channels = vec![
-                        "📜information",
-                        "🤖bot",
-                        "🌐dev",
-                        "🚩issue",
-                        "✅progress",
-                        "📢notice",
-                        "🎡random",
-                        "🖥️github",
-                    ];
-
-                    for ch_name in text_channels {
-                        let mut builder = CreateChannel::new(ch_name)
-                            .kind(ChannelType::Text)
-                            .category(category.id);
-
-                        if ch_name == "🖥️github" {
-                            builder = builder.permissions(vec![
-                                deny_everyone.clone(),
-                                readonly_project_role.clone(),
-                                allow_bot.clone(),
-                            ]);
-                        } else if ch_name == "📜information" {
-                            builder = builder.permissions(vec![
-                                deny_everyone.clone(),
-                                readonly_project_role.clone(),
-                                allow_pm.clone(),
-                                allow_bot.clone(),
-                            ]);
-                        }
-
-                        let _ = guild_id.create_channel(&ctx.http, builder).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
-
-                    let voice_builder = CreateChannel::new("🎙️ voice chat")
-                        .kind(ChannelType::Voice)
-                        .category(category.id);
-                    let _ = guild_id.create_channel(&ctx.http, voice_builder).await;
-
-                    command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new().content(format!(
-                                "🚀 <@{}> 님, 프로젝트 서버 세팅이 완료되었습니다!",
-                                command.user.id
-                            )),
-                        )
-                        .await?;
-                }
-                Err(why) => {
-                    command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new()
-                                .content(format!("❌ 카테고리 생성 실패: {:?}", why)),
-                        )
-                        .await?;
-                }
-            }
-            let _ = tx.send(CacheCommand::RefreshAll).await;
+            generate_project(channel_manager, project_name).await?;
         }
 
         // --- 2. 프로젝트 이름 변경 (/project rename [new_name]) ---
@@ -349,95 +183,16 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
-                if let Some(category_id) = channel.parent_id {
-                    let exists = cache.project_mapping.keys().any(|k| k == &new_name);
-                    if exists {
-                        command
-                            .edit_response(
-                                &ctx.http,
-                                EditInteractionResponse::new().content(format!(
-                                    "❌ 이미 '{}' 이름의 프로젝트가 존재합니다.",
-                                    new_name
-                                )),
-                            )
-                            .await?;
-                        return Ok(());
-                    }
+            // 필요한 컨텍스트를 구조체로 묶기
+            let channel_manager = ChannelManager {
+                ctx,
+                guild_id,
+                command,
+                cache,
+                tx,
+            };
 
-                    let mut old_name = String::new();
-                    if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-                    {
-                        let category_name: Vec<&str> = cat_channel.name.split("(PM: ").collect();
-                        old_name = category_name[0].trim().to_string();
-                    }
-
-                    let pm_name = match cache.project_pms.get(&old_name) {
-                        Some(pm_id) => cache
-                            .all_members
-                            .get(pm_id)
-                            .cloned()
-                            .unwrap_or_else(|| "Unknown PM".to_string()),
-                        None => "Unknown PM".to_string(),
-                    };
-                    let category_name = format!("{}(PM: {})", new_name, pm_name);
-                    let builder = EditChannel::new().name(&category_name);
-
-                    match category_id.edit(&ctx.http, builder).await {
-                        Ok(_) => {
-                            let mut role_renamed = false;
-                            if let Ok(roles) = guild_id.roles(&ctx.http).await {
-                                for role in roles.values() {
-                                    if !old_name.is_empty()
-                                        && role.name.to_lowercase() == old_name.to_lowercase()
-                                    {
-                                        let role_builder = EditRole::new().name(&new_name);
-                                        if guild_id
-                                            .edit_role(&ctx.http, role.id, role_builder)
-                                            .await
-                                            .is_ok()
-                                        {
-                                            role_renamed = true;
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-
-                            let msg_content = if role_renamed {
-                                format!("📝 프로젝트 카테고리와 역할 이름이 모두 '{}'으로 변경되었습니다.", new_name)
-                            } else {
-                                format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)
-                            };
-                            command
-                                .edit_response(
-                                    &ctx.http,
-                                    EditInteractionResponse::new().content(msg_content),
-                                )
-                                .await?;
-                            let _ = tx.send(CacheCommand::RefreshAll).await;
-                        }
-                        Err(why) => {
-                            command
-                                .edit_response(
-                                    &ctx.http,
-                                    EditInteractionResponse::new()
-                                        .content(format!("❌ 이름 변경 실패: {:?}", why)),
-                                )
-                                .await?;
-                        }
-                    }
-                } else {
-                    command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new().content(
-                                "❌ 이 명령어는 프로젝트 카테고리 내부 채널에서 실행해야 합니다.",
-                            ),
-                        )
-                        .await?;
-                }
-            }
+            rename_project(channel_manager, new_name).await?;
         }
 
         // --- 3. 프로젝트 완전 삭제 (/project delete) ---
@@ -473,81 +228,448 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
-                if let Some(category_id) = channel.parent_id {
-                    let mut category_name = String::new();
-                    if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-                    {
-                        category_name = cat_channel.name.clone();
-                    }
+            // 필요한 컨텍스트를 구조체로 묶기
+            let channel_manager = ChannelManager {
+                ctx,
+                guild_id,
+                command,
+                cache,
+                tx,
+            };
+            delete_project(channel_manager).await?;
+        }
+        _ => {}
+    }
 
+    Ok(())
+}
+
+async fn generate_project(
+    channel_manager: ChannelManager<'_>,
+    project_name: String,
+) -> serenity::Result<()> {
+    // 구조체 분해로 편리하게 변수 추출
+    let (ctx, guild_id, command, cache, tx) = (
+        channel_manager.ctx,
+        channel_manager.guild_id,
+        channel_manager.command,
+        channel_manager.cache,
+        channel_manager.tx,
+    );
+
+    command
+        .edit_response(
+            &ctx.http,
+            EditInteractionResponse::new().content(format!(
+                "🏗️ '{}' 프로젝트 생성을 시작합니다. 세팅 중...",
+                project_name
+            )),
+        )
+        .await?;
+
+    // 🤖 봇 자신 ID 가져오기
+    let bot_id = match ctx.http.get_current_user().await {
+        Ok(user) => user.id,
+        Err(why) => {
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content(format!("❌ 봇 정보를 가져오지 못했습니다: {:?}", why)),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // 역할 생성
+    let role_builder = EditRole::new().name(&project_name);
+    let project_role = match guild_id.create_role(&ctx.http, role_builder).await {
+        Ok(role) => role,
+        Err(why) => {
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(format!("❌ 역할 생성 실패: {:?}", why)),
+                )
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // 명령어를 실행한 멤버에게 역할 부여
+    if let Err(why) = ctx
+        .http
+        .add_member_role(guild_id, command.user.id, project_role.id, None)
+        .await
+    {
+        println!("⚠️ [generate] 유저에게 역할 부여 실패: {:?}", why);
+    }
+
+    // 권한 오버라이트 설정
+    let everyone_role_id = RoleId::new(guild_id.get());
+    let deny_everyone = PermissionOverwrite {
+        allow: Permissions::empty(),
+        deny: Permissions::VIEW_CHANNEL,
+        kind: PermissionOverwriteType::Role(everyone_role_id),
+    };
+
+    let allow_project_role = PermissionOverwrite {
+        allow: Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES,
+        deny: Permissions::empty(),
+        kind: PermissionOverwriteType::Role(project_role.id),
+    };
+
+    let allow_bot = PermissionOverwrite {
+        allow: Permissions::VIEW_CHANNEL
+            | Permissions::SEND_MESSAGES
+            | Permissions::MANAGE_CHANNELS,
+        deny: Permissions::empty(),
+        kind: PermissionOverwriteType::Member(bot_id),
+    };
+
+    // 프로젝트 멤버들의 채팅을 막기 위한 오버라이트 (View만 허용, Send 차단)
+    let readonly_project_role = PermissionOverwrite {
+        allow: Permissions::VIEW_CHANNEL,
+        deny: Permissions::SEND_MESSAGES, // 👈 깃허브, 정보 채널 등에서 발언권 차단
+        kind: PermissionOverwriteType::Role(project_role.id),
+    };
+
+    // PM(명령어 호출자)에게만 발언권을 주기 위한 오버라이트
+    let allow_pm = PermissionOverwrite {
+        allow: Permissions::VIEW_CHANNEL | Permissions::SEND_MESSAGES,
+        deny: Permissions::empty(),
+        kind: PermissionOverwriteType::Member(command.user.id), // 👈 PM 개인 유저 ID
+    };
+
+    // PM 이름 빌드 및 캐시 동기화
+    let pm_name = match cache.all_members.get(&command.user.id) {
+        Some(name) => name.clone(),
+        None => {
+            let latest_name = command
+                .member
+                .as_ref()
+                .and_then(|m| m.nick.clone())
+                .unwrap_or_else(|| {
                     command
-                        .edit_response(
-                            &ctx.http,
-                            EditInteractionResponse::new()
-                                .content("🧹 프로젝트 채널들과 역할을 완전히 삭제합니다..."),
-                        )
-                        .await?;
+                        .user
+                        .global_name
+                        .clone()
+                        .unwrap_or_else(|| command.user.name.clone())
+                });
 
-                    // 1. 하위 채널 청소 (현재 명령어가 쳐진 채널 제외하고 '확실히' 대기하며 삭제)
-                    if let Ok(channels) = guild_id.channels(&ctx.http).await {
-                        for (id, guild_channel) in &channels {
-                            if guild_channel.parent_id == Some(category_id)
-                                && *id != command.channel_id
-                            {
-                                // ⚠️ 에러를 씹지 않고(?), 완전히 삭제가 끝날 때까지 동기적으로 기다립니다.
-                                if let Err(why) = guild_channel.id.delete(&ctx.http).await {
-                                    tracing::error!("하위 채널 삭제 실패: {:?}", why);
-                                }
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            }
-                        }
+            let _ = tx
+                .send(CacheCommand::UpdateSingleMember {
+                    user_id: command.user.id,
+                    display_name: command.user.name.clone(),
+                })
+                .await;
 
-                        // 2. 명령어가 실행된 현재 채널 삭제
-                        if let Err(why) = command.channel_id.delete(&ctx.http).await {
-                            tracing::error!("현재 명령어 채널 삭제 실패: {:?}", why);
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            latest_name
+        }
+    };
+
+    // 카테고리 생성
+    let category_name = format!("{}(PM: {})", project_name, pm_name);
+    let category_builder = CreateChannel::new(&category_name)
+        .kind(ChannelType::Category)
+        .permissions(vec![
+            deny_everyone.clone(),
+            allow_project_role.clone(),
+            allow_bot.clone(),
+        ]);
+
+    match guild_id.create_channel(&ctx.http, category_builder).await {
+        Ok(category) => {
+            let text_channels = vec![
+                "📜information",
+                "🤖bot",
+                "🌐dev",
+                "🚩issue",
+                "✅progress",
+                "📢notice",
+                "🎡random",
+                "🖥️github",
+            ];
+
+            for ch_name in text_channels {
+                let mut builder = CreateChannel::new(ch_name)
+                    .kind(ChannelType::Text)
+                    .category(category.id);
+
+                if ch_name == "🖥️github" {
+                    builder = builder.permissions(vec![
+                        deny_everyone.clone(),
+                        readonly_project_role.clone(),
+                        allow_bot.clone(),
+                    ]);
+                } else if ch_name == "📜information" {
+                    builder = builder.permissions(vec![
+                        deny_everyone.clone(),
+                        readonly_project_role.clone(),
+                        allow_pm.clone(),
+                        allow_bot.clone(),
+                    ]);
+                }
+
+                let _ = guild_id.create_channel(&ctx.http, builder).await;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+
+            let voice_builder = CreateChannel::new("🎙️ voice chat")
+                .kind(ChannelType::Voice)
+                .category(category.id);
+            let _ = guild_id.create_channel(&ctx.http, voice_builder).await;
+
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(format!(
+                        "🚀 <@{}> 님, 프로젝트 서버 세팅이 완료되었습니다!",
+                        command.user.id
+                    )),
+                )
+                .await?;
+        }
+        Err(why) => {
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content(format!("❌ 카테고리 생성 실패: {:?}", why)),
+                )
+                .await?;
+        }
+    }
+    let project = Project {
+        id: String::new(),
+        name: project_name.clone(),
+        status: Status::NotStarted,
+        github: String::new(),
+        pm: NotionMember::default(),
+        participants: Vec::new(),
+    };
+
+    match create_project(&project).await {
+        Ok(_) => {
+            println!("Notion 프로젝트 등록이 완료되었습니다: {}", project_name);
+        }
+        Err(why) => {
+            eprintln!("Notion 프로젝트 등록 실패: {}. 에러: {:?}", project_name, why);
+        }
+    }
+    let _ = tx.send(CacheCommand::RefreshAll).await;
+
+    Ok(())
+}
+
+async fn rename_project(
+    channel_manager: ChannelManager<'_>,
+    new_name: String,
+) -> serenity::Result<()> {
+    // 구조체 분해로 편리하게 변수 추출
+    let (ctx, guild_id, command, cache, tx) = (
+        channel_manager.ctx,
+        channel_manager.guild_id,
+        channel_manager.command,
+        channel_manager.cache,
+        channel_manager.tx,
+    );
+
+    if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
+        if let Some(category_id) = channel.parent_id {
+            // 동명의 프로젝트 검증
+            let mut exists = false;
+            for project in &cache.project_mapping {
+                if project.name.to_lowercase() == new_name.to_lowercase() {
+                    exists = true;
+                    break;
+                }
+            }
+
+            if exists {
+                command
+                    .edit_response(
+                        &ctx.http,
+                        EditInteractionResponse::new().content(format!(
+                            "❌ 이미 '{}' 이름의 프로젝트가 존재합니다.",
+                            new_name
+                        )),
+                    )
+                    .await?;
+                return Ok(());
+            }
+
+            let old_name = category_id.to_channel(&ctx.http).await
+                .ok()
+                .and_then(|ch| {
+                    if let Channel::Guild(cat_channel) = ch {
+                        Some(cat_channel.name.clone())
+                    } else {
+                        None
                     }
+                })
+                .unwrap_or_default();
+            // if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
+            // {
+            //     let category_name: Vec<&str> = cat_channel.name.split("(PM: ").collect();
+            //     old_name = category_name[0].trim().to_string();
+            // }
 
-                    // 3. 카테고리 자체 삭제 대기
-                    if let Err(why) = category_id.delete(&ctx.http).await {
-                        tracing::error!("카테고리 채널 삭제 실패: {:?}", why);
-                    }
+            // let pm_name = match cache.project_pms.get(&old_name) {
+            //     Some(pm_id) => cache
+            //         .all_members
+            //         .get(pm_id)
+            //         .cloned()
+            //         .unwrap_or_else(|| "Unknown PM".to_string()),
+            //     None => "Unknown PM".to_string(),
+            // };
+            // let category_name = format!("{}(PM: {})", new_name, pm_name);
+            let builder = EditChannel::new().name(&new_name);
 
-                    // 4. 동명 프로젝트 역할 찾아서 삭제 대기
-                    let project_name = category_name
-                        .split("(PM:")
-                        .next()
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-
+            match category_id.edit(&ctx.http, builder).await {
+                Ok(_) => {
+                    let mut role_renamed = false;
                     if let Ok(roles) = guild_id.roles(&ctx.http).await {
                         for role in roles.values() {
-                            if !project_name.is_empty()
-                                && role.name.to_lowercase() == project_name.to_lowercase()
+                            if !old_name.is_empty()
+                                && role.name.to_lowercase() == old_name.to_lowercase()
                             {
-                                if let Err(why) = guild_id.delete_role(&ctx.http, role.id).await {
-                                    tracing::error!("프로젝트 역할 삭제 실패: {:?}", why);
+                                let role_builder = EditRole::new().name(&new_name);
+                                if guild_id
+                                    .edit_role(&ctx.http, role.id, role_builder)
+                                    .await
+                                    .is_ok()
+                                {
+                                    role_renamed = true;
                                 }
                                 break;
                             }
                         }
                     }
 
-                    // ⭐ [핵심 안정화 장치]
-                    // 디스코드 API 서버 측에서 삭제 처리가 완료되고, 게이트웨이 백엔드에 반영되는 최소한의 물리적 시간을 벌어줍니다.
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-                    // 5. 완벽히 비워진 상태에서 캐시 전체 갱신 요청
+                    let msg_content = if role_renamed {
+                        format!("📝 프로젝트 카테고리와 역할 이름이 모두 '{}'으로 변경되었습니다.", new_name)
+                    } else {
+                        format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)
+                    };
+                    command
+                        .edit_response(
+                            &ctx.http,
+                            EditInteractionResponse::new().content(msg_content),
+                        )
+                        .await?;
                     let _ = tx.send(CacheCommand::RefreshAll).await;
-                } else {
-                    command.edit_response(&ctx.http, EditInteractionResponse::new().content("❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.")).await?;
+                }
+                Err(why) => {
+                    command
+                        .edit_response(
+                            &ctx.http,
+                            EditInteractionResponse::new()
+                                .content(format!("❌ 이름 변경 실패: {:?}", why)),
+                        )
+                        .await?;
                 }
             }
+        } else {
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(
+                        "❌ 이 명령어는 프로젝트 카테고리 내부 채널에서 실행해야 합니다.",
+                    ),
+                )
+                .await?;
         }
-        _ => {}
+    }
+
+    Ok(())
+}
+
+async fn delete_project(
+    channel_manager: ChannelManager<'_>,
+) -> serenity::Result<()> {
+    // 구조체 분해로 편리하게 변수 추출
+    let (ctx, guild_id, command, _cache, tx) = (
+        channel_manager.ctx,
+        channel_manager.guild_id,
+        channel_manager.command,
+        channel_manager.cache,
+        channel_manager.tx,
+    );
+
+    if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
+        if let Some(category_id) = channel.parent_id {
+            let mut category_name = String::new();
+            if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
+            {
+                category_name = cat_channel.name.clone();
+            }
+
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content("🧹 프로젝트 채널들과 역할을 완전히 삭제합니다..."),
+                )
+                .await?;
+
+            // 1. 하위 채널 청소 (현재 명령어가 쳐진 채널 제외하고 '확실히' 대기하며 삭제)
+            if let Ok(channels) = guild_id.channels(&ctx.http).await {
+                for (id, guild_channel) in &channels {
+                    if guild_channel.parent_id == Some(category_id)
+                        && *id != command.channel_id
+                    {
+                        // ⚠️ 에러를 씹지 않고(?), 완전히 삭제가 끝날 때까지 동기적으로 기다립니다.
+                        if let Err(why) = guild_channel.id.delete(&ctx.http).await {
+                            tracing::error!("하위 채널 삭제 실패: {:?}", why);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                }
+
+                // 2. 명령어가 실행된 현재 채널 삭제
+                if let Err(why) = command.channel_id.delete(&ctx.http).await {
+                    tracing::error!("현재 명령어 채널 삭제 실패: {:?}", why);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+
+            // 3. 카테고리 자체 삭제 대기
+            if let Err(why) = category_id.delete(&ctx.http).await {
+                tracing::error!("카테고리 채널 삭제 실패: {:?}", why);
+            }
+
+            // 4. 동명 프로젝트 역할 찾아서 삭제 대기
+            let project_name = category_name
+                .split("(PM:")
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+
+            if let Ok(roles) = guild_id.roles(&ctx.http).await {
+                for role in roles.values() {
+                    if !project_name.is_empty()
+                        && role.name.to_lowercase() == project_name.to_lowercase()
+                    {
+                        if let Err(why) = guild_id.delete_role(&ctx.http, role.id).await {
+                            tracing::error!("프로젝트 역할 삭제 실패: {:?}", why);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // ⭐ [핵심 안정화 장치]
+            // 디스코드 API 서버 측에서 삭제 처리가 완료되고, 게이트웨이 백엔드에 반영되는 최소한의 물리적 시간을 벌어줍니다.
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+            // 5. 완벽히 비워진 상태에서 캐시 전체 갱신 요청
+            let _ = tx.send(CacheCommand::RefreshAll).await;
+        } else {
+            command.edit_response(&ctx.http, EditInteractionResponse::new().content("❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.")).await?;
+        }
     }
 
     Ok(())
