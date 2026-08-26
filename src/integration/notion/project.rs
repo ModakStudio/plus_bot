@@ -10,7 +10,7 @@ use super::{env::*, member::Member};
 pub enum Status {
     NotStarted,  // 시작 전
     InProgress,  // 진행 중
-    Maintenance, // 유지보유
+    Maintenance, // 유지보수
     Completed,   // 완료
 }
 
@@ -19,7 +19,7 @@ impl From<&str> for Status {
         match value {
             "시작 전" => Status::NotStarted,
             "진행 중" => Status::InProgress,
-            "유지보유" => Status::Maintenance,
+            "유지보수" => Status::Maintenance,
             "완료" => Status::Completed,
             _ => Status::NotStarted, // 기본값으로 NotStarted를 반환
         }
