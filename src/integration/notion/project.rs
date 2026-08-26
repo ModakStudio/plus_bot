@@ -244,3 +244,30 @@ pub async fn update_project(
         )))
     }
 }
+
+pub async fn delete_project(project_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .patch(&format!("https://api.notion.com/v1/pages/{}", project_id))
+        .header("Authorization", format!("Bearer {}", get_notion_token()))
+        .header("Notion-Version", get_notion_version())
+        .json(&serde_json::json!({
+            "in_trash": true
+        }))
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        eprintln!(
+            "Notion API 요청이 실패했습니다. Status: {}",
+            response.status()
+        );
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Notion API 요청 실패",
+        )))
+    }
+}
