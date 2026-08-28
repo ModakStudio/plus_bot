@@ -13,8 +13,8 @@ use super::ChannelManager;
 
 use crate::cache::{CacheCommand, CacheNotifyKey};
 
-use crate::integration::notion::project::*;
 use crate::integration::notion::member::*;
+use crate::integration::notion::project::*;
 
 pub fn register_project_command() -> CreateCommand {
     CreateCommand::new("project")
@@ -142,7 +142,7 @@ pub async fn run_project_command(
             }
             // 동명의 프로젝트 검증
             let mut exists = false;
-            for project in &cache.project_mapping {
+            for project in &channel_manager.cache.project_mapping {
                 if project.name.to_lowercase() == project_name.to_lowercase() {
                     exists = true;
                     break;
@@ -162,14 +162,6 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            // 필요한 컨텍스트를 구조체로 묶기
-            let channel_manager = ChannelManager {
-                ctx,
-                guild_id,
-                command,
-                cache,
-                tx,
-            };
             generate_project(channel_manager, project_name).await?;
         }
 
@@ -193,15 +185,6 @@ pub async fn run_project_command(
                     .await?;
                 return Ok(());
             }
-
-            // 필요한 컨텍스트를 구조체로 묶기
-            let channel_manager = ChannelManager {
-                ctx,
-                guild_id,
-                command,
-                cache,
-                tx,
-            };
 
             rename_project(channel_manager, new_name).await?;
         }
@@ -239,14 +222,6 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            // 필요한 컨텍스트를 구조체로 묶기
-            let channel_manager = ChannelManager {
-                ctx,
-                guild_id,
-                command,
-                cache,
-                tx,
-            };
             delete_project(channel_manager).await?;
         }
         _ => {}
@@ -598,6 +573,7 @@ async fn generate_project(
                 .await?;
         }
     }
+    
     let project = Project {
         id: String::new(),
         name: project_name.clone(),
@@ -606,15 +582,19 @@ async fn generate_project(
         pm: NotionMember::default(),
         participants: Vec::new(),
     };
-
+    
     match create_project(&project).await {
         Ok(_) => {
             println!("Notion 프로젝트 등록이 완료되었습니다: {}", project_name);
         }
         Err(why) => {
-            eprintln!("Notion 프로젝트 등록 실패: {}. 에러: {:?}", project_name, why);
+            eprintln!(
+                "Notion 프로젝트 등록 실패: {}. 에러: {:?}",
+                project_name, why
+            );
         }
     }
+
     let _ = tx.send(CacheCommand::RefreshAll).await;
 
     Ok(())
@@ -657,7 +637,9 @@ async fn rename_project(
                 return Ok(());
             }
 
-            let old_name = category_id.to_channel(&ctx.http).await
+            let old_name = category_id
+                .to_channel(&ctx.http)
+                .await
                 .ok()
                 .and_then(|ch| {
                     if let Channel::Guild(cat_channel) = ch {
@@ -667,21 +649,7 @@ async fn rename_project(
                     }
                 })
                 .unwrap_or_default();
-            // if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-            // {
-            //     let category_name: Vec<&str> = cat_channel.name.split("(PM: ").collect();
-            //     old_name = category_name[0].trim().to_string();
-            // }
 
-            // let pm_name = match cache.project_pms.get(&old_name) {
-            //     Some(pm_id) => cache
-            //         .all_members
-            //         .get(pm_id)
-            //         .cloned()
-            //         .unwrap_or_else(|| "Unknown PM".to_string()),
-            //     None => "Unknown PM".to_string(),
-            // };
-            // let category_name = format!("{}(PM: {})", new_name, pm_name);
             let builder = EditChannel::new().name(&new_name);
 
             match category_id.edit(&ctx.http, builder).await {
@@ -726,7 +694,10 @@ async fn rename_project(
                     }
 
                     let msg_content = if role_renamed {
-                        format!("📝 프로젝트 카테고리와 역할 이름이 모두 '{}'으로 변경되었습니다.", new_name)
+                        format!(
+                            "📝 프로젝트 카테고리와 역할 이름이 모두 '{}'으로 변경되었습니다.",
+                            new_name
+                        )
                     } else {
                         format!("📝 프로젝트 이름은 '{}'으로 변경되었으나, 동명의 기존 역할을 찾지 못했습니다.", new_name)
                     };
@@ -752,9 +723,8 @@ async fn rename_project(
             command
                 .edit_response(
                     &ctx.http,
-                    EditInteractionResponse::new().content(
-                        "❌ 이 명령어는 프로젝트 카테고리 내부 채널에서 실행해야 합니다.",
-                    ),
+                    EditInteractionResponse::new()
+                        .content("❌ 이 명령어는 프로젝트 카테고리 내부 채널에서 실행해야 합니다."),
                 )
                 .await?;
         }
@@ -763,9 +733,7 @@ async fn rename_project(
     Ok(())
 }
 
-async fn delete_project(
-    channel_manager: ChannelManager<'_>,
-) -> serenity::Result<()> {
+async fn delete_project(channel_manager: ChannelManager<'_>) -> serenity::Result<()> {
     // 구조체 분해로 편리하게 변수 추출
     let (ctx, guild_id, command, _cache, tx) = (
         channel_manager.ctx,
@@ -778,8 +746,7 @@ async fn delete_project(
     if let Channel::Guild(channel) = command.channel_id.to_channel(&ctx.http).await? {
         if let Some(category_id) = channel.parent_id {
             let mut category_name = String::new();
-            if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await
-            {
+            if let Ok(Channel::Guild(cat_channel)) = category_id.to_channel(&ctx.http).await {
                 category_name = cat_channel.name.clone();
             }
 
@@ -801,9 +768,7 @@ async fn delete_project(
             // 1. 하위 채널 청소 (현재 명령어가 쳐진 채널 제외하고 '확실히' 대기하며 삭제)
             if let Ok(channels) = guild_id.channels(&ctx.http).await {
                 for (id, guild_channel) in &channels {
-                    if guild_channel.parent_id == Some(category_id)
-                        && *id != command.channel_id
-                    {
+                    if guild_channel.parent_id == Some(category_id) && *id != command.channel_id {
                         // ⚠️ 에러를 씹지 않고(?), 완전히 삭제가 끝날 때까지 동기적으로 기다립니다.
                         if let Err(why) = guild_channel.id.delete(&ctx.http).await {
                             tracing::error!("하위 채널 삭제 실패: {:?}", why);
@@ -884,7 +849,14 @@ async fn delete_project(
             // 5. 완벽히 비워진 상태에서 캐시 전체 갱신 요청
             let _ = tx.send(CacheCommand::RefreshAll).await;
         } else {
-            command.edit_response(&ctx.http, EditInteractionResponse::new().content("❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.")).await?;
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(
+                        "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.",
+                    ),
+                )
+                .await?;
         }
     }
 
