@@ -72,7 +72,7 @@ impl From<&Value> for NotionMember {
     }
 }
 
-pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Error>> {
+pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -149,14 +149,16 @@ pub async fn get_members() -> Result<Vec<NotionMember>, Box<dyn std::error::Erro
     }
 }
 
-pub async fn get_member_by_id(member_id: String) -> Result<NotionMember, Box<dyn std::error::Error>> {
+pub async fn get_member_by_id(
+    member_id: String,
+) -> Result<NotionMember, Box<dyn std::error::Error + Send + Sync>> {
     let members = get_members().await?;
 
     members
         .into_iter()
         .find(|member| member.id == member_id)
         .ok_or_else(|| {
-            Box::<dyn std::error::Error>::from(std::io::Error::new(
+            Box::<dyn std::error::Error + Send + Sync>::from(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Member not found",
             ))
@@ -165,14 +167,14 @@ pub async fn get_member_by_id(member_id: String) -> Result<NotionMember, Box<dyn
 
 pub async fn get_member_by_discord_id(
     discord_id: String,
-) -> Result<NotionMember, Box<dyn std::error::Error>> {
+) -> Result<NotionMember, Box<dyn std::error::Error + Send + Sync>> {
     let members = get_members().await?;
 
     members
         .into_iter()
         .find(|member| member.discord_id == discord_id)
         .ok_or_else(|| {
-            Box::<dyn std::error::Error>::from(std::io::Error::new(
+            Box::<dyn std::error::Error + Send + Sync>::from(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Member not found",
             ))

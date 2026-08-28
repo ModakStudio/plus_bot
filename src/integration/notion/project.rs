@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::integration::notion::member::get_member_by_id;
 
-use super::{env::*, member::Member};
+use super::{env::*, member::NotionMember};
 
 #[derive(Debug, Clone)]
 pub enum Status {
@@ -32,8 +32,8 @@ pub struct Project {
     pub name: String,
     pub status: Status,
     pub github: String,
-    pub pm: Member,
-    pub participants: Vec<Member>,
+    pub pm: NotionMember,
+    pub participants: Vec<NotionMember>,
     pub category_id: String,
 }
 
@@ -85,7 +85,7 @@ impl Project {
     }
 }
 
-pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> {
+pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -159,7 +159,10 @@ pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> 
     }
 }
 
-pub async fn create_project(project: &Project) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn create_project(
+    project: &Project,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
     let client = reqwest::Client::new();
 
     let response = client

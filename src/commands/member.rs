@@ -8,9 +8,10 @@ use serenity::builder::EditInteractionResponse;
 use serenity::prelude::*;
 
 use crate::cache::{CacheCommand, CacheNotifyKey};
+use crate::integration::notion::member::NotionMember;
+use crate::integration::notion::project::Project;
 
 // 앞으로 해야할거
-// 추후 개발방향: 노션에 연동해서 프로젝트 참여 인원 확인 하기
 
 // 1. 명령어 등록 함수
 pub fn register_member_command() -> CreateCommand {
@@ -109,8 +110,8 @@ pub async fn run_member_command(
         Some(category_id) => {
             let category_channel: serenity::all::GuildChannel =
                 category_id.to_channel(&ctx.http).await?.guild().unwrap();
-            let category_name_parts: Vec<&str> = category_channel.name.split("(PM: ").collect();
-            category_name_parts[0].trim().to_string()
+
+            category_channel.name
         }
         None => {
             command
@@ -147,7 +148,7 @@ pub async fn run_member_command(
     };
 
     // 캐시 스레드 채널 송신자(Sender) 획득
-    let tx = data_read
+    let tx: tokio::sync::mpsc::Sender<CacheCommand> = data_read
         .get::<CacheNotifyKey>()
         .expect("보관함에 캐시 갱신 신호가 없습니다.")
         .clone();
@@ -155,7 +156,15 @@ pub async fn run_member_command(
     match subcommand_option.name.as_str() {
         // --- 1. 참여 인원 조회 (/member list) ---
         "list" => {
-            let included_set = cache.project_mapping.get(&project_name);
+            // 현재 프로젝트 정보를 캐시에서 조회
+            let mutcurrent_project = Project::default();
+            for project in &cache.project_mapping {
+                if &project.name == &project_name {
+                    let current_project = project.clone();
+                    break;
+                }
+            }
+
             let mut included_mems = Vec::new();
 
             for (user_id, username) in &cache.all_members {

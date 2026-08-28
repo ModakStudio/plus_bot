@@ -122,8 +122,7 @@ async fn main() {
     // 캐시 저장소 초기 설정
     let shared_cache = Arc::new(RwLock::new(cache::BotCache {
         all_members: HashMap::new(),
-        project_mapping: HashMap::new(),
-        project_pms: HashMap::new(),
+        project_mapping: Vec::new(),
     }));
 
     // 캐시 동기화 스레드 구동
