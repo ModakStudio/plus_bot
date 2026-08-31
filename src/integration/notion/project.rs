@@ -162,7 +162,7 @@ pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error + 
 
 pub async fn create_project(
     project: &Project,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::new();
 
     let response = client

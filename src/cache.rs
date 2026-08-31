@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use serenity::all::UserId;
 use serenity::gateway::ShardManager;
+use serenity::http::Http;
+use serenity::model::id::GuildId;
 use serenity::prelude::TypeMapKey;
 
 use tokio::sync::{mpsc, RwLock};
@@ -63,6 +65,8 @@ impl TypeMapKey for ShardManagerContainer {
 // 쓰레드 구성
 pub fn start_cache_thread(
     cache: Arc<RwLock<BotCache>>,
+    _http: Arc<Http>,
+    _guild_id: GuildId,
 ) -> mpsc::Sender<CacheCommand> {
     // 버퍼 크기가 32인 비동기 채널 생성(가동신호 수신용)
     let (tx, mut rx) = mpsc::channel::<CacheCommand>(32);
@@ -139,7 +143,6 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>) {
     }
     println!("백그라운드 데이터 갱신 완료");
 }
-
 
 // 단일 유저 캐시 갱신
 async fn update_single_member(
