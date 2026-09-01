@@ -1,3 +1,4 @@
+use serenity::all::standard::Check;
 use serenity::all::{
     ChannelId, CommandOptionType, CreateCommand, CreateCommandOption, GuildId, Permissions,
 };
@@ -323,6 +324,13 @@ async fn rename_project(
     let ctx = channel_manager.ctx;
     let command = channel_manager.command;
 
+    let mut notion_project = match get_project_idx_by_name(&channel_manager, &old_name).await {
+        Some(idx) => channel_manager.cache.project_vec[idx].clone(),
+        None => {
+            return Ok(());
+        }
+    };
+
     let builder = EditChannel::new().name(&new_name);
     if let Err(why) = category_id.edit(&ctx.http, builder).await {
         command
@@ -333,6 +341,9 @@ async fn rename_project(
             .await?;
         return Ok(());
     }
+
+    // Notion 프로젝트 이름 변경
+    notion_project.name = new_name.clone();
 
     let role_renamed = try_rename_role(ctx, channel_manager.guild_id, &old_name, &new_name).await;
     let msg_content = if role_renamed {
@@ -354,10 +365,15 @@ async fn rename_project(
         )
         .await?;
 
-    // Notion 프로젝트 이름 변경(프로젝트 ID를 어떻게 관리할지 논의 후 구현)
-    /*
-       아직 미구현
-    */
+    // Notion 동기화
+    let project_id = notion_project.id.clone();
+    update_project(&project_id, &notion_project).await.map_err(|why| {
+        eprintln!(
+            "Notion 프로젝트 이름 변경 실패: {}. 에러: {:?}",
+            new_name, why
+        );
+        why
+    });
 
     // 캐시 갱신
     let _ = channel_manager.tx.send(CacheCommand::RefreshAll).await;
@@ -435,9 +451,30 @@ fn get_string_arg<'a>(opt: &'a CommandDataOption, name: &str) -> Option<String> 
     None
 }
 
+async fn get_project_idx_by_name(channel_manager: &ChannelManager<'_>, project_name: &str) -> Option<usize> {
+    let project_id = channel_manager.cache.project_name_to_id.get(project_name)?;
+
+    match channel_manager.cache.project_id_mapping.get(project_id) {
+        Some(idx) => Some(*idx),
+        None => {
+            println!(
+                "❌ 캐시에서 '{}' 프로젝트를 찾지 못했습니다. 캐시를 갱신합니다.",
+                project_name
+            );
+            let _ = channel_manager.tx.send(CacheCommand::RefreshAll).await;
+
+            None
+        }
+    }
+}
+
 // 이미 존재하는 프로젝트 이름인지 확인하고, 존재하면 에러 메시지 전송
 async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, name: &str) -> bool {
-    if channel_manager.cache.project_mapping.contains_key(name) {
+    if channel_manager
+        .cache
+        .project_name_to_id
+        .contains_key(name)
+    {
         let _ = channel_manager
             .command
             .edit_response(

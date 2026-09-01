@@ -21,7 +21,8 @@ use crate::integration::notion::project::{get_projects, Project};
 pub struct BotCache {
     // 유저 아이디로 관리
     pub all_members: HashMap<UserId, String>,
-    pub project_mapping: HashMap<String, usize>, // 프로젝트 이름 -> project_vec 인덱스
+    pub project_name_to_id: HashMap<String, String>, // 프로젝트 이름 -> 프로젝트 노션 아이디
+    pub project_id_mapping: HashMap<String, usize>,   // 프로젝트 노션 아이디 -> project_vec 인덱스
     pub project_vec: Vec<Project>,
 }
 
@@ -117,18 +118,22 @@ pub fn start_cache_thread(
 async fn refresh_cache(cache: &Arc<RwLock<BotCache>>) {
     let mut new_cache = BotCache {
         all_members: HashMap::new(),
-        project_mapping: HashMap::new(),
+        project_name_to_id: HashMap::new(),
+        project_id_mapping: HashMap::new(),
         project_vec: Vec::new(),
     };
 
     match get_projects().await {
         Ok(projects) => {
             new_cache.project_vec = projects;
-            // 프로젝트 이름을 키로 사용하여 인덱스를 매핑
+            // 프로젝트 이름과 ID를 키로 사용하여 인덱스를 매핑
             for (index, project) in new_cache.project_vec.iter().enumerate() {
                 new_cache
-                    .project_mapping
-                    .insert(project.name.clone(), index);
+                    .project_name_to_id
+                    .insert(project.name.clone(), project.id.clone());
+                new_cache
+                    .project_id_mapping
+                    .insert(project.id.clone(), index);
             }
         }
         Err(e) => {

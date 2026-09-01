@@ -158,7 +158,7 @@ pub async fn run_member_command(
         "list" => {
             // 현재 프로젝트 정보를 캐시에서 조회
             let mutcurrent_project = Project::default();
-            for project in &cache.project_mapping {
+            for project in &cache.project_name_mapping {
                 if &project.name == &project_name {
                     let current_project = project.clone();
                     break;
