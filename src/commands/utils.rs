@@ -53,7 +53,11 @@ pub async fn get_project_category_id(
     channel_manager: &ChannelManager<'_>,
     error_message: &str,
 ) -> Option<ChannelId> {
-    let (ctx, command) = (channel_manager.ctx, channel_manager.command);
+    let (ctx, guild_id, command) = (
+        channel_manager.ctx,
+        channel_manager.guild_id,
+        channel_manager.command,
+    );
 
     let check_category = async {
         let Ok(Channel::Guild(guild_ch)) = command.channel_id.to_channel(&ctx.http).await else {

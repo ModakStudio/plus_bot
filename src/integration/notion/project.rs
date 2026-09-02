@@ -69,8 +69,10 @@ impl Project {
                     .as_array()
                     .unwrap_or(&Vec::new())
                     .iter()
-                    .map(|NotionMember| {
-                        get_member_by_id(NotionMember["id"].as_str().unwrap_or_default().to_string())
+                    .map(|notion_member| {
+                        get_member_by_id(
+                            notion_member["id"].as_str().unwrap_or_default().to_string(),
+                        )
                     }),
             )
             .await

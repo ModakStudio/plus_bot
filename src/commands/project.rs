@@ -110,6 +110,18 @@ pub async fn run_project_command(
                 return Ok(());
             };
 
+            // 프로젝트 PM만 이름 변경 가능하도록 검증
+            if is_project_pm(&channel_manager, category_id).await == false {
+                command
+                    .edit_response(
+                        &ctx.http,
+                        EditInteractionResponse::new()
+                            .content("❌ 프로젝트 PM만 이름 변경이 가능합니다."),
+                    )
+                    .await?;
+                return Ok(());
+            }
+
             let old_name = match category_id.to_channel(&ctx.http).await {
                 Ok(Channel::Guild(cat_channel)) => cat_channel.name,
                 _ => String::new(),
