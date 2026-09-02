@@ -230,7 +230,8 @@ pub async fn update_project(
                 } } },
                 "github": { "url": project.github },
                 "PM": { "people": [{ "id": project.pm.id }] },
-                "participants": { "people": project.participants.iter().map(|p| serde_json::json!({ "id": p.id })).collect::<Vec<_>>() }
+                "participants": { "people": project.participants.iter().map(|p| serde_json::json!({ "id": p.id })).collect::<Vec<_>>() },
+                "category_id": { "rich_text": [{ "text": { "content": project.category_id } }] }
             }
         }))
         .send()
