@@ -3,8 +3,10 @@ cache.rs
 프로젝트를 저장하는 캐쉬 구조 구현
 */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use tracing::{error, info};
 
 use serenity::all::UserId;
 use serenity::gateway::ShardManager;
@@ -14,7 +16,6 @@ use serenity::prelude::TypeMapKey;
 
 use tokio::sync::{mpsc, RwLock};
 
-use crate::integration::notion::member::NotionMember;
 use crate::integration::notion::project::{get_projects, Project};
 
 //봇이 전체적으로 공유할 캐쉬 구조체
@@ -27,6 +28,7 @@ pub struct BotCache {
 }
 
 // 캐시 스레드가 처리할 명령 목록
+#[derive(Debug)]
 pub enum CacheCommand {
     RefreshAll, // 모든 캐시를 갱신
     UpdateSingleMember {
@@ -34,16 +36,16 @@ pub enum CacheCommand {
         user_id: serenity::model::id::UserId,
         display_name: String,
     },
-    AddProjectMembers {
-        // 특정 프로젝트에 참여중인 유저 목록 추가
-        project_name: String,
-        user_ids: HashSet<UserId>,
-    },
-    RemoveProjectMembers {
-        // 특정 프로젝트에 참여중인 유저 목록 제거
-        project_name: String,
-        user_ids: HashSet<UserId>,
-    },
+    // AddProjectMembers {
+    //     // 특정 프로젝트에 참여중인 유저 목록 추가
+    //     project_name: String,
+    //     user_ids: HashSet<UserId>,
+    // },
+    // RemoveProjectMembers {
+    //     // 특정 프로젝트에 참여중인 유저 목록 제거
+    //     project_name: String,
+    //     user_ids: HashSet<UserId>,
+    // },
 }
 
 pub struct SharedCacheKey;
@@ -73,7 +75,7 @@ pub fn start_cache_thread(
     let (tx, mut rx) = mpsc::channel::<CacheCommand>(32);
 
     tokio::spawn(async move {
-        println!("백그라운드 동기화 스레드 가동");
+        info!("백그라운드 동기화 스레드 가동");
 
         // 봇이 켜졌을떄 한 번 연동
         refresh_cache(&cache).await;
@@ -81,34 +83,36 @@ pub fn start_cache_thread(
         while let Some(command) = rx.recv().await {
             match command {
                 CacheCommand::RefreshAll => {
-                    println!("[캐시] 전체 캐시 즉시 동기화 요청 처리 중...");
+                    info!("[캐시] 전체 캐시 즉시 동기화 요청 처리 중...");
                     refresh_cache(&cache).await;
                 }
                 CacheCommand::UpdateSingleMember {
                     user_id,
                     display_name,
                 } => {
-                    println!("[캐시] {} 님의 단일 캐시 업데이트 중...", display_name);
+                    info!("[캐시] {} 님의 단일 캐시 업데이트 중...", display_name);
                     update_single_member(&cache, user_id, display_name).await;
-                }
-                CacheCommand::AddProjectMembers {
-                    project_name,
-                    user_ids,
-                } => {
-                    println!("[캐시] {} 프로젝트 참여자 목록 추가 중...", project_name);
-                    add_project_members(&cache, project_name, user_ids).await;
-                }
-                CacheCommand::RemoveProjectMembers {
-                    project_name,
-                    user_ids,
-                } => {
-                    println!("[캐시] {} 프로젝트에서 참여자 제외 중...", project_name);
-                    remove_project_members(&cache, project_name, user_ids).await;
-                }
+                } // CacheCommand::AddProjectMembers {
+                  //     project_name,
+                  //     user_ids,
+                  // } => {
+                  //     info!("[캐시] {} 프로젝트 참여자 목록 추가 중...", project_name);
+                  //     add_project_members(&cache, project_name, user_ids).await;
+                  // }
+                  // CacheCommand::RemoveProjectMembers {
+                  //     project_name,
+                  //     user_ids,
+                  // } => {
+                  //     info!("[캐시] {} 프로젝트에서 참여자 제외 중...", project_name);
+                  //     remove_project_members(&cache, project_name, user_ids).await;
+                  // }
+                  // _ => {
+                  //     info!("[캐시] 알 수 없는 명령어 수신: {:?}", command);
+                  // }
             }
         }
         // 만약 봇이 꺼지거나 tx를 가진 곳이 전부 드롭되면 루프 종료.
-        println!("백그라운드 동기화 스레드 종료");
+        info!("백그라운드 동기화 스레드 종료");
     });
 
     tx
@@ -137,7 +141,7 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>) {
             }
         }
         Err(e) => {
-            eprintln!("프로젝트 목록을 가져오는 데 실패했습니다: {}", e);
+            error!("프로젝트 목록을 가져오는 데 실패했습니다: {}", e);
         }
     }
 
@@ -146,7 +150,7 @@ async fn refresh_cache(cache: &Arc<RwLock<BotCache>>) {
         let mut lock = cache.write().await;
         *lock = new_cache;
     }
-    println!("백그라운드 데이터 갱신 완료");
+    info!("백그라운드 데이터 갱신 완료");
 }
 
 // 단일 유저 캐시 갱신
@@ -157,43 +161,4 @@ async fn update_single_member(
 ) {
     let mut guard = cache.write().await;
     guard.all_members.insert(user_id, display_name);
-}
-
-// 프로젝트 참여자 추가
-async fn add_project_members(
-    cache: &Arc<RwLock<BotCache>>,
-    project_name: String,
-    user_ids: HashSet<UserId>,
-) {
-    // let mut guard = cache.write().await;
-    // guard
-    //     .project_mapping
-    //     .entry(project_name)
-    //     .or_default()
-    //     .extend(user_ids);
-}
-
-// 프로젝트 참여자 제거
-async fn remove_project_members(
-    cache: &Arc<RwLock<BotCache>>,
-    project_name: String,
-    user_ids: HashSet<UserId>,
-) {
-    // let mut guard = cache.write().await;
-
-    // // 💡 프로젝트가 존재할 때만 내부 HashSet을 가져와서 수정합니다.
-    // if let Some(members) = guard.project_mapping.get_mut(&project_name) {
-    //     for id in user_ids {
-    //         members.remove(&id);
-    //     }
-
-    //     // 만약 탈퇴 후 프로젝트에 아무도 안 남았다면 맵에서 프로젝트 자체를 삭제
-    //     if members.is_empty() {
-    //         guard.project_mapping.remove(&project_name);
-    //         println!(
-    //             "[캐시] {} 프로젝트에 참여자가 없어 매핑을 완전히 삭제했습니다.",
-    //             project_name
-    //         );
-    //     }
-    // }
 }

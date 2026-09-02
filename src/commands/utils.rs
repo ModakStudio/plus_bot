@@ -53,11 +53,7 @@ pub async fn get_project_category_id(
     channel_manager: &ChannelManager<'_>,
     error_message: &str,
 ) -> Option<ChannelId> {
-    let (ctx, guild_id, command) = (
-        channel_manager.ctx,
-        channel_manager.guild_id,
-        channel_manager.command,
-    );
+    let (ctx, command) = (channel_manager.ctx, channel_manager.command);
 
     let check_category = async {
         let Ok(Channel::Guild(guild_ch)) = command.channel_id.to_channel(&ctx.http).await else {
@@ -132,4 +128,19 @@ pub async fn is_project_pm(channel_manager: &ChannelManager<'_>, category_id: Ch
     };
 
     command.user.id == pm_id
+}
+
+pub async fn is_server_admin(channel_manager: &ChannelManager<'_>) -> bool {
+    let (ctx, command, guild_id) = (
+        channel_manager.ctx,
+        channel_manager.command,
+        channel_manager.guild_id,
+    );
+
+    let guild = match guild_id.to_partial_guild(&ctx.http).await {
+        Ok(guild) => guild,
+        Err(_) => return false,
+    };
+
+    return guild.owner_id == command.user.id;
 }

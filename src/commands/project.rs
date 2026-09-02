@@ -1,3 +1,5 @@
+use tracing::{error, info};
+
 use serenity::all::{
     ChannelId, CommandOptionType, CreateCommand, CreateCommandOption, GuildId, Permissions,
 };
@@ -85,7 +87,7 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            generate_project(channel_manager, project_name).await?;
+            generate_project(&channel_manager, project_name).await?;
         }
 
         "rename" => {
@@ -131,7 +133,7 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            rename_project(channel_manager, category_id, old_name, new_name).await?;
+            rename_project(&channel_manager, category_id, old_name, new_name).await?;
         }
 
         "delete" => {
@@ -166,7 +168,7 @@ pub async fn run_project_command(
                 return Ok(());
             }
 
-            delete_project(channel_manager, category_id).await?;
+            delete_project(&channel_manager, category_id).await?;
         }
         _ => {}
     }
@@ -175,25 +177,16 @@ pub async fn run_project_command(
 }
 
 async fn generate_project(
-    channel_manager: ChannelManager<'_>,
+    channel_manager: &ChannelManager<'_>,
     project_name: String,
 ) -> serenity::Result<()> {
     let (ctx, guild_id, command, tx) = (
         channel_manager.ctx,
         channel_manager.guild_id,
         channel_manager.command,
-        channel_manager.tx,
+        &channel_manager.tx,
     );
 
-    command
-        .edit_response(
-            &ctx.http,
-            EditInteractionResponse::new().content(format!(
-                "🏗️ '{}' 프로젝트 생성을 시작합니다. 세팅 중...",
-                project_name
-            )),
-        )
-        .await?;
     command
         .edit_response(
             &ctx.http,
@@ -316,7 +309,7 @@ async fn generate_project(
     };
 
     if let Err(why) = create_project(&project).await {
-        eprintln!(
+        error!(
             "Notion 프로젝트 등록 실패: {}. 에러: {:?}",
             project_name, why
         );
@@ -327,7 +320,7 @@ async fn generate_project(
 }
 
 async fn rename_project(
-    channel_manager: ChannelManager<'_>,
+    channel_manager: &ChannelManager<'_>,
     category_id: ChannelId,
     old_name: String,
     new_name: String,
@@ -381,16 +374,20 @@ async fn rename_project(
 
     // Notion 동기화
     let project_id = notion_project.id.clone();
-    update_project(&project_id, &notion_project)
-        .await
-        .map_err(|why| {
-            eprintln!(
-                "Notion 프로젝트 이름 변경 실패: {}. 에러: {:?}",
+    match update_project(&project_id, &notion_project).await {
+        Ok(_) => {
+            info!(
+                "Notion 프로젝트 '{}' 정보가 성공적으로 업데이트되었습니다.",
+                new_name
+            );
+        }
+        Err(why) => {
+            error!(
+                "Notion 프로젝트 '{}' 정보 업데이트 실패. 에러: {:?}",
                 new_name, why
             );
-            why
-        });
-
+        }
+    }
     // 캐시 갱신
     let _ = tx.send(CacheCommand::RefreshAll).await;
 
@@ -398,7 +395,7 @@ async fn rename_project(
 }
 
 async fn delete_project(
-    channel_manager: ChannelManager<'_>,
+    channel_manager: &ChannelManager<'_>,
     category_id: ChannelId,
 ) -> serenity::Result<()> {
     let (ctx, guild_id, command, tx) = (
@@ -451,10 +448,10 @@ async fn delete_project(
     use crate::integration::notion::project::delete_project;
     match delete_project(&project_id).await {
         Ok(_) => {
-            println!("Notion 프로젝트 '{}' 삭제 완료", project_name);
+            info!("Notion 프로젝트 '{}' 삭제 완료", project_name);
         }
         Err(why) => {
-            eprintln!(
+            error!(
                 "Notion 프로젝트 '{}' 삭제 실패. 에러: {:?}",
                 project_name, why
             );
