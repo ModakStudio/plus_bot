@@ -22,7 +22,7 @@ pub struct BotCache {
     // 유저 아이디로 관리
     pub all_members: HashMap<UserId, String>,
     pub project_name_to_id: HashMap<String, String>, // 프로젝트 이름 -> 프로젝트 노션 아이디
-    pub project_id_mapping: HashMap<String, usize>,   // 프로젝트 노션 아이디 -> project_vec 인덱스
+    pub project_id_mapping: HashMap<String, usize>,  // 프로젝트 노션 아이디 -> project_vec 인덱스
     pub project_vec: Vec<Project>,
 }
 

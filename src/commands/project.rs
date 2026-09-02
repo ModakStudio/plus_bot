@@ -1,4 +1,3 @@
-use serenity::all::standard::Check;
 use serenity::all::{
     ChannelId, CommandOptionType, CreateCommand, CreateCommandOption, GuildId, Permissions,
 };
@@ -321,8 +320,11 @@ async fn rename_project(
     old_name: String,
     new_name: String,
 ) -> serenity::Result<()> {
-    let ctx = channel_manager.ctx;
-    let command = channel_manager.command;
+    let (ctx, command, tx) = (
+        channel_manager.ctx,
+        channel_manager.command,
+        &channel_manager.tx,
+    );
 
     let mut notion_project = match get_project_idx_by_name(&channel_manager, &old_name).await {
         Some(idx) => channel_manager.cache.project_vec[idx].clone(),
@@ -367,16 +369,18 @@ async fn rename_project(
 
     // Notion 동기화
     let project_id = notion_project.id.clone();
-    update_project(&project_id, &notion_project).await.map_err(|why| {
-        eprintln!(
-            "Notion 프로젝트 이름 변경 실패: {}. 에러: {:?}",
-            new_name, why
-        );
-        why
-    });
+    update_project(&project_id, &notion_project)
+        .await
+        .map_err(|why| {
+            eprintln!(
+                "Notion 프로젝트 이름 변경 실패: {}. 에러: {:?}",
+                new_name, why
+            );
+            why
+        });
 
     // 캐시 갱신
-    let _ = channel_manager.tx.send(CacheCommand::RefreshAll).await;
+    let _ = tx.send(CacheCommand::RefreshAll).await;
 
     Ok(())
 }
@@ -389,7 +393,7 @@ async fn delete_project(
         channel_manager.ctx,
         channel_manager.guild_id,
         channel_manager.command,
-        channel_manager.tx,
+        &channel_manager.tx,
     );
 
     let project_name = match category_id.to_channel(&ctx.http).await {
@@ -423,10 +427,27 @@ async fn delete_project(
     // 3. 동명 역할 찾아서 삭제
     try_delete_role(ctx, guild_id, &project_name).await;
 
-    // Notion 프로젝트 삭제(프로젝트 ID를 어떻게 관리할지 논의 후 구현)
-    /*
-       아직 미구현
-    */
+    // 4. Notion 프로젝트 삭제
+    let project_idx = match get_project_idx_by_name(&channel_manager, &project_name).await {
+        Some(idx) => idx,
+        None => {
+            return Ok(());
+        }
+    };
+    let project_id = channel_manager.cache.project_vec[project_idx].id.clone();
+
+    use crate::integration::notion::project::delete_project;
+    match delete_project(&project_id).await {
+        Ok(_) => {
+            println!("Notion 프로젝트 '{}' 삭제 완료", project_name);
+        }
+        Err(why) => {
+            eprintln!(
+                "Notion 프로젝트 '{}' 삭제 실패. 에러: {:?}",
+                project_name, why
+            );
+        }
+    }
 
     // 완전 삭제까지 1초 대기 후 캐시 갱신
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -451,7 +472,10 @@ fn get_string_arg<'a>(opt: &'a CommandDataOption, name: &str) -> Option<String> 
     None
 }
 
-async fn get_project_idx_by_name(channel_manager: &ChannelManager<'_>, project_name: &str) -> Option<usize> {
+async fn get_project_idx_by_name(
+    channel_manager: &ChannelManager<'_>,
+    project_name: &str,
+) -> Option<usize> {
     let project_id = channel_manager.cache.project_name_to_id.get(project_name)?;
 
     match channel_manager.cache.project_id_mapping.get(project_id) {
@@ -470,11 +494,7 @@ async fn get_project_idx_by_name(channel_manager: &ChannelManager<'_>, project_n
 
 // 이미 존재하는 프로젝트 이름인지 확인하고, 존재하면 에러 메시지 전송
 async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, name: &str) -> bool {
-    if channel_manager
-        .cache
-        .project_name_to_id
-        .contains_key(name)
-    {
+    if channel_manager.cache.project_name_to_id.contains_key(name) {
         let _ = channel_manager
             .command
             .edit_response(
