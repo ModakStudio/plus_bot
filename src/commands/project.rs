@@ -2,17 +2,16 @@ use serenity::all::{
     ChannelId, CommandOptionType, CreateCommand, CreateCommandOption, GuildId, Permissions,
 };
 use serenity::builder::{CreateChannel, EditChannel, EditInteractionResponse, EditRole};
-use serenity::model::application::{CommandDataOption, CommandDataOptionValue, CommandInteraction};
+use serenity::model::application::CommandInteraction;
 use serenity::model::channel::{
     Channel, ChannelType, PermissionOverwrite, PermissionOverwriteType,
 };
 use serenity::model::id::RoleId;
 use serenity::prelude::*;
 
-use super::ChannelManager;
 use crate::cache::{CacheCommand, CacheNotifyKey};
-use crate::integration::notion::member::*;
-use crate::integration::notion::project::*;
+use crate::commands::utils::*;
+use crate::integration::notion::{member::*, project::*};
 
 pub async fn run_project_command(
     ctx: &Context,
@@ -106,7 +105,7 @@ pub async fn run_project_command(
             };
 
             let error_msg = "❌ 프로젝트 카테고리 내부 채널에서 명령어를 입력해주세요.";
-            let Some(category_id) = is_in_project_category(&channel_manager, error_msg).await
+            let Some(category_id) = get_project_category_id(&channel_manager, error_msg).await
             else {
                 return Ok(());
             };
@@ -130,7 +129,7 @@ pub async fn run_project_command(
             };
 
             let error_msg = "❌ 삭제할 프로젝트 카테고리 내부의 채널에서 명령어를 입력해주세요.";
-            let Some(category_id) = is_in_project_category(&channel_manager, error_msg).await
+            let Some(category_id) = get_project_category_id(&channel_manager, error_msg).await
             else {
                 return Ok(());
             };
@@ -458,40 +457,6 @@ async fn delete_project(
 
 // --- 헬퍼 함수들 ---
 
-// 하위 명령어 옵션에서 특정 이름의 문자열 값을 가져오는 함수
-fn get_string_arg<'a>(opt: &'a CommandDataOption, name: &str) -> Option<String> {
-    if let CommandDataOptionValue::SubCommand(sub_opts) = &opt.value {
-        return sub_opts.iter().find(|o| o.name == name).and_then(|o| {
-            if let CommandDataOptionValue::String(val) = &o.value {
-                Some(val.clone())
-            } else {
-                None
-            }
-        });
-    }
-    None
-}
-
-async fn get_project_idx_by_name(
-    channel_manager: &ChannelManager<'_>,
-    project_name: &str,
-) -> Option<usize> {
-    let project_id = channel_manager.cache.project_name_to_id.get(project_name)?;
-
-    match channel_manager.cache.project_id_mapping.get(project_id) {
-        Some(idx) => Some(*idx),
-        None => {
-            println!(
-                "❌ 캐시에서 '{}' 프로젝트를 찾지 못했습니다. 캐시를 갱신합니다.",
-                project_name
-            );
-            let _ = channel_manager.tx.send(CacheCommand::RefreshAll).await;
-
-            None
-        }
-    }
-}
-
 // 이미 존재하는 프로젝트 이름인지 확인하고, 존재하면 에러 메시지 전송
 async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, name: &str) -> bool {
     if channel_manager.cache.project_name_to_id.contains_key(name) {
@@ -506,43 +471,6 @@ async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, n
         return true;
     }
     false
-}
-
-// 프로젝트 카테고리 내부 채널에서만 명령어를 실행하도록 검증, 카테고리 ID 반환
-async fn is_in_project_category(
-    channel_manager: &ChannelManager<'_>,
-    error_message: &str,
-) -> Option<ChannelId> {
-    let (ctx, command) = (channel_manager.ctx, channel_manager.command);
-
-    let check_category = async {
-        let Ok(Channel::Guild(guild_ch)) = command.channel_id.to_channel(&ctx.http).await else {
-            return None;
-        };
-        let parent_id = guild_ch.parent_id?;
-        let Ok(Channel::Guild(parent_ch)) = parent_id.to_channel(&ctx.http).await else {
-            return None;
-        };
-
-        if parent_ch.kind == ChannelType::Category {
-            Some(parent_id)
-        } else {
-            None
-        }
-    };
-
-    if let Some(category_id) = check_category.await {
-        return Some(category_id);
-    }
-
-    let _ = command
-        .edit_response(
-            &ctx.http,
-            EditInteractionResponse::new().content(error_message),
-        )
-        .await;
-
-    None
 }
 
 // 역할 이름 변경 시도, 성공 여부 반환
