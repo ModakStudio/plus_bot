@@ -36,7 +36,6 @@ pub async fn run_member_command(
         .get::<crate::cache::SharedCacheKey>()
         .expect("보관함에 캐시가 없습니다.")
         .clone();
-    let cache = cache_lock.read().await;
 
     // 캐시 스레드 채널 송신자(Sender) 획득
     let tx: tokio::sync::mpsc::Sender<CacheCommand> = data_read
@@ -49,7 +48,7 @@ pub async fn run_member_command(
         ctx,
         guild_id,
         command,
-        cache,
+        cache_lock,
         tx,
     };
 
@@ -71,10 +70,10 @@ async fn handle_member_command(
     channel_manager: &ChannelManager<'_>,
     category_id: ChannelId,
 ) -> serenity::Result<()> {
-    let (ctx, command, cache) = (
+    let (ctx, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.command,
-        &channel_manager.cache,
+        &channel_manager.cache_lock,
     );
 
     // 첫 번째 옵션에서 어떤 서브커맨드가 들어왔는지 확인
@@ -106,7 +105,10 @@ async fn handle_member_command(
     };
 
     // 프로젝트 인덱스를 통해 프로젝트 정보 가져오기
-    let mut my_project = cache.project_vec[project_idx].clone();
+    let mut my_project = {
+        let cache = cache_lock.read().await;
+        cache.project_vec[project_idx].clone()
+    };
 
     // 프로젝트에 참여중인 인원 수집, pm은 가장 앞에 위치
     let pm_discord_id = convert_string_to_discord_id(&my_project.pm.discord_id).unwrap();
@@ -194,10 +196,10 @@ async fn member_list(
     project_name: &str,
     included_mems: &Vec<UserId>,
 ) -> serenity::Result<()> {
-    let (ctx, command, cache) = (
+    let (ctx, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.command,
-        &channel_manager.cache,
+        &channel_manager.cache_lock,
     );
 
     // 참여 인원 명단을 문자열로 포맷팅
@@ -205,6 +207,7 @@ async fn member_list(
     if included_mems.is_empty() {
         content.push_str("현재 등록된 멤버가 없습니다.\n");
     } else {
+        let cache = cache_lock.read().await;
         for mem in included_mems {
             // content.push_str(&format!("• {}\n", mem)); // 반복문 안에서 format 사용 시 성능 저하 우려
             // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
@@ -228,11 +231,11 @@ async fn member_add(
     already_members: &Vec<UserId>,
     my_project: &mut Project,
 ) -> Result<(), serenity::Error> {
-    let (ctx, guild_id, command, cache) = (
+    let (ctx, guild_id, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.guild_id,
         channel_manager.command,
-        &channel_manager.cache,
+        &channel_manager.cache_lock,
     );
 
     // 서버 내에서 대응되는 프로젝트 역할 ID 검색
@@ -245,12 +248,17 @@ async fn member_add(
             continue;
         }
 
-        let notion_member = NotionMember {
-            name: cache
+        let member_name = {
+            let cache = cache_lock.read().await;
+            cache
                 .all_members
                 .get(&user_id)
                 .unwrap_or(&"알 수 없는 유저".to_string())
-                .clone(),
+                .clone()
+        };
+
+        let notion_member = NotionMember {
+            name: member_name,
             discord_id: user_id.to_string(),
             ..Default::default()
         };

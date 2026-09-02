@@ -92,23 +92,24 @@ pub fn start_cache_thread(
                 } => {
                     info!("[캐시] {} 님의 단일 캐시 업데이트 중...", display_name);
                     update_single_member(&cache, user_id, display_name).await;
-                } // CacheCommand::AddProjectMembers {
-                  //     project_name,
-                  //     user_ids,
-                  // } => {
-                  //     info!("[캐시] {} 프로젝트 참여자 목록 추가 중...", project_name);
-                  //     add_project_members(&cache, project_name, user_ids).await;
-                  // }
-                  // CacheCommand::RemoveProjectMembers {
-                  //     project_name,
-                  //     user_ids,
-                  // } => {
-                  //     info!("[캐시] {} 프로젝트에서 참여자 제외 중...", project_name);
-                  //     remove_project_members(&cache, project_name, user_ids).await;
-                  // }
-                  // _ => {
-                  //     info!("[캐시] 알 수 없는 명령어 수신: {:?}", command);
-                  // }
+                }
+                // CacheCommand::AddProjectMembers {
+                //     project_name,
+                //     user_ids,
+                // } => {
+                //     info!("[캐시] {} 프로젝트 참여자 목록 추가 중...", project_name);
+                //     add_project_members(&cache, project_name, user_ids).await;
+                // }
+                // CacheCommand::RemoveProjectMembers {
+                //     project_name,
+                //     user_ids,
+                // } => {
+                //     info!("[캐시] {} 프로젝트에서 참여자 제외 중...", project_name);
+                //     remove_project_members(&cache, project_name, user_ids).await;
+                // }
+                // _ => {
+                //     info!("[캐시] 알 수 없는 명령어 수신: {:?}", command);
+                // }
             }
         }
         // 만약 봇이 꺼지거나 tx를 가진 곳이 전부 드롭되면 루프 종료.

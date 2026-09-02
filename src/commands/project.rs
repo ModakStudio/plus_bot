@@ -50,7 +50,7 @@ pub async fn run_project_command(
         .get::<crate::cache::SharedCacheKey>()
         .expect("보관함에 캐시가 없습니다.")
         .clone();
-    let cache = cache_lock.read().await;
+
     let tx = data_read
         .get::<CacheNotifyKey>()
         .expect("보관함에 캐시 갱신 신호가 없습니다.")
@@ -61,7 +61,7 @@ pub async fn run_project_command(
         ctx,
         guild_id,
         command,
-        cache,
+        cache_lock,
         tx,
     };
 
@@ -332,7 +332,11 @@ async fn rename_project(
     );
 
     let mut notion_project = match get_project_idx_by_name(&channel_manager, &old_name).await {
-        Some(idx) => channel_manager.cache.project_vec[idx].clone(),
+        Some(idx) => {
+            let cache = channel_manager.cache_lock.read().await;
+            
+            cache.project_vec[idx].clone()
+        },
         None => {
             return Ok(());
         }
@@ -443,7 +447,10 @@ async fn delete_project(
             return Ok(());
         }
     };
-    let project_id = channel_manager.cache.project_vec[project_idx].id.clone();
+    
+    let cache = channel_manager.cache_lock.read().await;
+    let project_id = cache.project_vec[project_idx].id.clone();
+    drop(cache); // 캐시 잠금 해제
 
     use crate::integration::notion::project::delete_project;
     match delete_project(&project_id).await {
@@ -469,7 +476,11 @@ async fn delete_project(
 
 // 이미 존재하는 프로젝트 이름인지 확인하고, 존재하면 에러 메시지 전송
 async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, name: &str) -> bool {
-    if channel_manager.cache.project_name_to_id.contains_key(name) {
+    // 1. 키 존재 여부만 빠르게 확인 후 락 자동 해제
+    let exists = channel_manager.cache_lock.read().await.project_name_to_id.contains_key(name);
+
+    // 2. 락이 풀린 상태에서 안전하게 HTTP 통신 진행
+    if exists {
         let _ = channel_manager
             .command
             .edit_response(
@@ -480,6 +491,7 @@ async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, n
             .await;
         return true;
     }
+
     false
 }
 
