@@ -5,7 +5,6 @@ use serde_json::Value;
 use crate::integration::notion::member::get_member_by_id;
 
 use super::{env::*, member::NotionMember};
-use super::{env::*, member::NotionMember};
 
 #[derive(Debug, Clone)]
 pub enum Status {
@@ -35,6 +34,7 @@ pub struct Project {
     pub github: String,
     pub pm: NotionMember,
     pub participants: Vec<NotionMember>,
+    pub category_id: String,
 }
 
 impl Project {
@@ -69,8 +69,8 @@ impl Project {
                     .as_array()
                     .unwrap_or(&Vec::new())
                     .iter()
-                    .map(|member| {
-                        get_member_by_id(member["id"].as_str().unwrap_or_default().to_string())
+                    .map(|NotionMember| {
+                        get_member_by_id(NotionMember["id"].as_str().unwrap_or_default().to_string())
                     }),
             )
             .await
@@ -85,8 +85,7 @@ impl Project {
     }
 }
 
-pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error + Send + Sync>> {
-pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let database_response = client
@@ -160,9 +159,7 @@ pub async fn get_projects() -> Result<Vec<Project>, Box<dyn std::error::Error + 
     }
 }
 
-pub async fn create_project(
-    project: &Project,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn create_project(project: &Project) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     let response = client

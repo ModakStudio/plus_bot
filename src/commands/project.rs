@@ -300,6 +300,7 @@ async fn generate_project(
         github: String::new(),
         pm: NotionMember::default(),
         participants: Vec::new(),
+        category_id: category.id.to_string(),
     };
 
     if let Err(why) = create_project(&project).await {
