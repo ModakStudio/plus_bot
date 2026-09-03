@@ -299,13 +299,10 @@ async fn generate_project(
         .await?;
 
     let project = Project {
-        id: String::new(),
         name: project_name.clone(),
-        status: Status::NotStarted,
-        github: String::new(),
         pm: NotionMember::default(),
-        participants: Vec::new(),
         category_id: category.id.to_string(),
+        ..Default::default()
     };
 
     if let Err(why) = create_project(&project).await {
