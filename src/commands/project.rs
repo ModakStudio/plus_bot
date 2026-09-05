@@ -11,7 +11,7 @@ use serenity::model::channel::{
 use serenity::model::id::RoleId;
 use serenity::prelude::*;
 
-use crate::cache::{CacheCommand, CacheNotifyKey};
+use crate::cache::*;
 use crate::commands::utils::*;
 use crate::integration::notion::{member::*, project::*};
 
@@ -51,10 +51,10 @@ pub async fn run_project_command(
         .expect("보관함에 캐시가 없습니다.")
         .clone();
 
-    let tx = data_read
-        .get::<CacheNotifyKey>()
-        .expect("보관함에 캐시 갱신 신호가 없습니다.")
-        .clone();
+    // let tx = data_read
+    //     .get::<CacheNotifyKey>()
+    //     .expect("보관함에 캐시 갱신 신호가 없습니다.")
+    //     .clone();
 
     // 필요한 컨텍스트를 구조체로 묶기
     let channel_manager = ChannelManager {
@@ -62,7 +62,7 @@ pub async fn run_project_command(
         guild_id,
         command,
         cache_lock,
-        tx,
+        // tx,
     };
 
     // 서브커맨드 이름 매칭 분기
@@ -180,11 +180,11 @@ async fn generate_project(
     channel_manager: &ChannelManager<'_>,
     project_name: String,
 ) -> serenity::Result<()> {
-    let (ctx, guild_id, command, tx) = (
+    let (ctx, guild_id, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.guild_id,
         channel_manager.command,
-        &channel_manager.tx,
+        &channel_manager.cache_lock,
     );
 
     command
@@ -279,7 +279,7 @@ async fn generate_project(
         };
 
         let _ = guild_id.create_channel(&ctx.http, builder).await;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 
     // 음성 채널 생성
@@ -298,9 +298,15 @@ async fn generate_project(
         )
         .await?;
 
+    // Notion 프로젝트 생성
+    let pm = match BotCache::get_member_by_user_id(&cache_lock, command.user.id).await {
+        Some(member) => member,
+        None => NotionMember::default(),
+    };
+
     let project = Project {
         name: project_name.clone(),
-        pm: NotionMember::default(),
+        pm: pm.clone(),
         category_id: category.id.to_string(),
         ..Default::default()
     };
@@ -312,7 +318,6 @@ async fn generate_project(
         );
     }
 
-    let _ = tx.send(CacheCommand::RefreshAll).await;
     Ok(())
 }
 
@@ -322,22 +327,18 @@ async fn rename_project(
     old_name: String,
     new_name: String,
 ) -> serenity::Result<()> {
-    let (ctx, command, tx) = (
+    let (ctx, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.command,
-        &channel_manager.tx,
+        &channel_manager.cache_lock,
     );
 
-    let mut notion_project = match get_project_idx_by_name(&channel_manager, &old_name).await {
-        Some(idx) => {
-            let cache = channel_manager.cache_lock.read().await;
-            
-            cache.project_vec[idx].clone()
-        },
-        None => {
-            return Ok(());
-        }
+    // Notion 프로젝트 캐시에서 가져오기
+    let mut notion_project = match BotCache::get_project_by_name(&cache_lock, &old_name).await {
+        Some(project) => project.clone(),
+        None => return Ok(()),
     };
+    // notion_project.participants.push(notion_project.pm.clone());
 
     let builder = EditChannel::new().name(&new_name);
     if let Err(why) = category_id.edit(&ctx.http, builder).await {
@@ -389,8 +390,6 @@ async fn rename_project(
             );
         }
     }
-    // 캐시 갱신
-    let _ = tx.send(CacheCommand::RefreshAll).await;
 
     Ok(())
 }
@@ -399,11 +398,11 @@ async fn delete_project(
     channel_manager: &ChannelManager<'_>,
     category_id: ChannelId,
 ) -> serenity::Result<()> {
-    let (ctx, guild_id, command, tx) = (
+    let (ctx, guild_id, command, cache_lock) = (
         channel_manager.ctx,
         channel_manager.guild_id,
         channel_manager.command,
-        &channel_manager.tx,
+        &channel_manager.cache_lock,
     );
 
     let project_name = match category_id.to_channel(&ctx.http).await {
@@ -424,11 +423,11 @@ async fn delete_project(
         for (id, guild_channel) in &channels {
             if guild_channel.parent_id == Some(category_id) && *id != command.channel_id {
                 let _ = guild_channel.id.delete(&ctx.http).await;
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         }
         let _ = command.channel_id.delete(&ctx.http).await;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 
     // 2. 카테고리 삭제
@@ -438,16 +437,10 @@ async fn delete_project(
     try_delete_role(ctx, guild_id, &project_name).await;
 
     // 4. Notion 프로젝트 삭제
-    let project_idx = match get_project_idx_by_name(&channel_manager, &project_name).await {
-        Some(idx) => idx,
-        None => {
-            return Ok(());
-        }
+    let project_id = match BotCache::get_project_id_by_name(&cache_lock, &project_name).await {
+        Some(id) => id,
+        None => return Ok(()),
     };
-    
-    let cache = channel_manager.cache_lock.read().await;
-    let project_id = cache.project_vec[project_idx].id.clone();
-    drop(cache); // 캐시 잠금 해제
 
     use crate::integration::notion::project::delete_project;
     match delete_project(&project_id).await {
@@ -462,9 +455,8 @@ async fn delete_project(
         }
     }
 
-    // 완전 삭제까지 1초 대기 후 캐시 갱신
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    let _ = tx.send(CacheCommand::RefreshAll).await;
+    // // 완전 삭제까지 1초 대기 후 캐시 갱신
+    // tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
     Ok(())
 }
@@ -474,7 +466,12 @@ async fn delete_project(
 // 이미 존재하는 프로젝트 이름인지 확인하고, 존재하면 에러 메시지 전송
 async fn find_already_exist_project_name(channel_manager: &ChannelManager<'_>, name: &str) -> bool {
     // 1. 키 존재 여부만 빠르게 확인 후 락 자동 해제
-    let exists = channel_manager.cache_lock.read().await.project_name_to_id.contains_key(name);
+    let exists = channel_manager
+        .cache_lock
+        .read()
+        .await
+        .project_name_to_id
+        .contains_key(name);
 
     // 2. 락이 풀린 상태에서 안전하게 HTTP 통신 진행
     if exists {

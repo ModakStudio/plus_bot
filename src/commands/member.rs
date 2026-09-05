@@ -5,7 +5,7 @@ use serenity::all::*;
 use serenity::builder::EditInteractionResponse;
 use serenity::model::application::CommandDataOptionValue::{SubCommand, User};
 
-use crate::cache::{CacheCommand, CacheNotifyKey};
+use crate::cache::*;
 use crate::commands::utils::*;
 use crate::integration::notion::member::NotionMember;
 use crate::integration::notion::project::{update_project, Project};
@@ -37,19 +37,12 @@ pub async fn run_member_command(
         .expect("보관함에 캐시가 없습니다.")
         .clone();
 
-    // 캐시 스레드 채널 송신자(Sender) 획득
-    let tx: tokio::sync::mpsc::Sender<CacheCommand> = data_read
-        .get::<CacheNotifyKey>()
-        .expect("보관함에 캐시 갱신 신호가 없습니다.")
-        .clone();
-
     // 필요한 컨텍스트를 구조체로 묶기
     let channel_manager = ChannelManager {
         ctx,
         guild_id,
         command,
         cache_lock,
-        tx,
     };
 
     // 프로젝트 카테고리 내부 채널에서만 명령어를 실행할 수 있도록 검증
@@ -98,16 +91,10 @@ async fn handle_member_command(
         .unwrap()
         .name;
 
-    // 프로젝트 이름으로 프로젝트 인덱스 가져오기
-    let project_idx = match get_project_idx_by_name(&channel_manager, &project_name).await {
-        Some(idx) => idx,
-        None => return Ok(()),
-    };
-
     // 프로젝트 인덱스를 통해 프로젝트 정보 가져오기
-    let mut my_project = {
-        let cache = cache_lock.read().await;
-        cache.project_vec[project_idx].clone()
+    let mut my_project = match BotCache::get_project_by_name(cache_lock, &project_name).await {
+        Some(project) => project,
+        None => return Ok(()),
     };
 
     // 프로젝트에 참여중인 인원 수집, pm은 가장 앞에 위치
@@ -179,11 +166,6 @@ async fn handle_member_command(
                     my_project.name, why
                 ),
             }
-
-            // 캐시 갱신 신호 전송
-            if let Err(why) = channel_manager.tx.send(CacheCommand::RefreshAll).await {
-                error!("캐시 갱신 신호 전송 실패: {}", why);
-            }
         }
         _ => {}
     }
@@ -207,13 +189,12 @@ async fn member_list(
     if included_mems.is_empty() {
         content.push_str("현재 등록된 멤버가 없습니다.\n");
     } else {
-        let cache = cache_lock.read().await;
         for mem in included_mems {
             // content.push_str(&format!("• {}\n", mem)); // 반복문 안에서 format 사용 시 성능 저하 우려
             // write! 매크로는 버퍼 뒤에 바로 문자열을 포매팅해 추가해 성능저하 적음
-            match cache.all_members.get(mem) {
-                Some(name) => write!(content, "• {}\n", name).unwrap(),
-                None => println!("❌ 캐시에서 {} 유저를 찾지 못했습니다.", mem),
+            match BotCache::get_member_by_user_id(&cache_lock, *mem).await {
+                Some(member) => write!(content, "• {}\n", member.name).unwrap(),
+                None => error!("❌ 캐시에서 {} 유저를 찾지 못했습니다.", mem),
             };
         }
     }
@@ -248,17 +229,13 @@ async fn member_add(
             continue;
         }
 
-        let member_name = {
-            let cache = cache_lock.read().await;
-            cache
-                .all_members
-                .get(&user_id)
-                .unwrap_or(&"알 수 없는 유저".to_string())
-                .clone()
+        let member = match BotCache::get_member_by_user_id(cache_lock, user_id).await {
+            Some(member) => member,
+            None => continue,
         };
 
         let notion_member = NotionMember {
-            name: member_name,
+            name: member.name.clone(),
             discord_id: user_id.to_string(),
             ..Default::default()
         };
@@ -424,7 +401,7 @@ async fn get_target_role_id(
 // 서브커맨드 멘션 옵션에서 대상 유저 ID들을 추출하는 헬퍼 함수
 fn extract_target_user_ids(subcommand_option: &CommandDataOption) -> Vec<UserId> {
     let mut target_user_ids = Vec::new();
-    
+
     if let SubCommand(sub_opts) = &subcommand_option.value {
         for opt in sub_opts {
             if let User(user_id) = opt.value {
@@ -432,7 +409,7 @@ fn extract_target_user_ids(subcommand_option: &CommandDataOption) -> Vec<UserId>
             }
         }
     }
-    
+
     target_user_ids
 }
 

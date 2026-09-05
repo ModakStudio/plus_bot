@@ -1,12 +1,11 @@
 use std::sync::Arc;
-use tracing::error;
 
 use serenity::all::*;
 use serenity::model::id::UserId;
 
 use tokio::sync::RwLock;
 
-use crate::cache::{CacheCommand, BotCache};
+use crate::cache::BotCache;
 
 // 💡 필요한 컨텍스트를 구조체로 묶습니다.
 pub struct ChannelManager<'a> {
@@ -14,7 +13,6 @@ pub struct ChannelManager<'a> {
     pub guild_id: GuildId,
     pub command: &'a CommandInteraction,
     pub cache_lock: Arc<RwLock<BotCache>>,
-    pub tx: tokio::sync::mpsc::Sender<crate::cache::CacheCommand>,
 }
 
 // 하위 명령어 옵션에서 특정 이름의 문자열 값을 가져오는 함수
@@ -29,32 +27,6 @@ pub fn get_string_arg<'a>(opt: &'a CommandDataOption, name: &str) -> Option<Stri
         });
     }
     None
-}
-
-// 프로젝트 이름으로 프로젝트 인덱스를 가져오는 함수
-pub async fn get_project_idx_by_name(
-    channel_manager: &ChannelManager<'_>,
-    project_name: &str,
-) -> Option<usize> {
-    let (idx_opt, need_refresh) ={
-        let cache = channel_manager.cache_lock.read().await;
-        let project_id = cache.project_name_to_id.get(project_name)?;
-        
-        match cache.project_id_mapping.get(project_id) {
-            Some(idx) => (Some(*idx), false),
-            None => (None, true),
-        }
-    };
-
-    if need_refresh {
-        error!(
-            "❌ 캐시에서 '{}' 프로젝트를 찾지 못했습니다. 캐시를 갱신합니다.",
-            project_name
-        );
-        let _ = channel_manager.tx.send(CacheCommand::RefreshAll).await;
-    }
-    
-    idx_opt
 }
 
 // 명령어가 작성된 카테고리 ID를 가져오는 함수
@@ -119,18 +91,14 @@ pub async fn is_project_pm(channel_manager: &ChannelManager<'_>, category_id: Ch
         _ => String::new(),
     };
 
-    // 프로젝트 이름으로 프로젝트 인덱스 가져오기
-    let idx = match get_project_idx_by_name(channel_manager, &project_name).await {
-        Some(idx) => idx,
+    // 프로젝트 이름으로 프로젝트 정보 가져오기
+    let project = match BotCache::get_project_by_name(cache_lock, &project_name).await {
+        Some(proj) => proj,
         None => return false,
     };
 
-    let cache = cache_lock.read().await;
-    
-    // 프로젝트 인덱스를 사용하여 프로젝트 정보를 가져오고, pm의 Discord ID와 명령어 작성자의 ID를 비교
-    cache.project_vec.get(idx)
-        .and_then(|project| convert_string_to_discord_id(&project.pm.id))
-        .map_or(false, |pm_id| command.user.id == pm_id)
+    // 프로젝트 PM인지 확인
+    project.pm.discord_id == command.user.id.to_string()
 }
 
 pub async fn is_server_admin(channel_manager: &ChannelManager<'_>) -> bool {
