@@ -51,18 +51,12 @@ pub async fn run_project_command(
         .expect("보관함에 캐시가 없습니다.")
         .clone();
 
-    // let tx = data_read
-    //     .get::<CacheNotifyKey>()
-    //     .expect("보관함에 캐시 갱신 신호가 없습니다.")
-    //     .clone();
-
     // 필요한 컨텍스트를 구조체로 묶기
     let channel_manager = ChannelManager {
         ctx,
         guild_id,
         command,
         cache_lock,
-        // tx,
     };
 
     // 서브커맨드 이름 매칭 분기
@@ -454,9 +448,6 @@ async fn delete_project(
             );
         }
     }
-
-    // // 완전 삭제까지 1초 대기 후 캐시 갱신
-    // tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
     Ok(())
 }

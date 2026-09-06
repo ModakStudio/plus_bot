@@ -101,9 +101,6 @@ async fn main() {
     // 캐시 저장소 초기 설정
     let shared_cache = Arc::new(RwLock::new(cache::BotCache::new()));
 
-    // // 캐시 동기화 스레드 구동
-    // let cache_tx = cache::start_cache_thread(shared_cache.clone(), client.http.clone(), guild_id);
-
     // 클라이언트 데이터에 캐시 및 캐시 동기화 채널 저장
     {
         let mut data = client.data.write().await;

@@ -7,7 +7,6 @@ use serenity::model::application::CommandDataOptionValue::{SubCommand, User};
 
 use crate::cache::*;
 use crate::commands::utils::*;
-use crate::integration::notion::member::NotionMember;
 use crate::integration::notion::project::{update_project, Project};
 
 // 명령어 실행 함수
@@ -111,6 +110,8 @@ async fn handle_member_command(
         // --- 1. 참여 인원 조회 (/member list) ---
         "list" => {
             member_list(&channel_manager, &project_name, &included_mems).await?;
+
+            return Ok(());
         }
 
         // --- 2. 멤버 추가 / 내보내기 공통 로직 (add / remove) ---
@@ -161,10 +162,23 @@ async fn handle_member_command(
                     "프로젝트 '{}' 정보가 성공적으로 업데이트되었습니다.",
                     my_project.name
                 ),
-                Err(why) => error!(
-                    "프로젝트 '{}' 정보 업데이트 실패: {:?}",
-                    my_project.name, why
-                ),
+                Err(why) => {
+                    error!(
+                        "프로젝트 '{}' 정보 업데이트 실패: {:?}",
+                        my_project.name, why
+                    );
+
+                    return Ok(());
+                }
+            }
+
+            // 캐시 갱신
+            match BotCache::refresh_about_project(cache_lock).await {
+                Ok(_) => info!("프로젝트 캐시 갱신 완료."),
+                Err(why) => {
+                    error!("프로젝트 캐시 갱신 실패: {:?}", why);
+                    return Ok(());
+                }
             }
         }
         _ => {}
@@ -229,15 +243,9 @@ async fn member_add(
             continue;
         }
 
-        let member = match BotCache::get_member_by_user_id(cache_lock, user_id).await {
+        let notion_member = match BotCache::get_member_by_user_id(cache_lock, user_id).await {
             Some(member) => member,
             None => continue,
-        };
-
-        let notion_member = NotionMember {
-            name: member.name.clone(),
-            discord_id: user_id.to_string(),
-            ..Default::default()
         };
 
         if ctx
@@ -405,6 +413,10 @@ fn extract_target_user_ids(subcommand_option: &CommandDataOption) -> Vec<UserId>
     if let SubCommand(sub_opts) = &subcommand_option.value {
         for opt in sub_opts {
             if let User(user_id) = opt.value {
+                if target_user_ids.contains(&user_id) {
+                    continue; // 중복된 유저는 건너뛰기
+                }
+
                 target_user_ids.push(user_id);
             }
         }
