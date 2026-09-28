@@ -145,7 +145,7 @@ impl BotCache {
         project_name: &str,
     ) -> Option<Project> {
         let project_id = Self::get_project_id_by_name(cache_lock, project_name).await?;
-        
+
         Self::get_project_by_id(cache_lock, &project_id).await
     }
 
