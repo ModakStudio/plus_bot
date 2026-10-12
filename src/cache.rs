@@ -31,23 +31,19 @@ impl TypeMapKey for ShardManagerContainer {
 //봇이 전체적으로 공유할 캐쉬 구조체
 pub struct BotCache {
     // 유저 아이디로 관리
-    pub user_id_to_index: HashMap<UserId, usize>,
-    pub all_members: Vec<NotionMember>,
+    pub user_id_to_notion_member: HashMap<UserId, NotionMember>,
 
     pub project_name_to_id: HashMap<String, String>, // 프로젝트 이름 -> 프로젝트 노션 아이디
-    pub project_id_to_index: HashMap<String, usize>, // 프로젝트 노션 아이디 -> all_projects 인덱스
-    pub all_projects: Vec<Project>,
+    pub project_id_to_project: HashMap<String, Project>, // 프로젝트 노션 아이디 -> all_projects 인덱스
 }
 
 impl BotCache {
     pub fn new() -> Self {
         BotCache {
-            user_id_to_index: HashMap::new(),
-            all_members: Vec::new(),
+            user_id_to_notion_member: HashMap::new(),
 
             project_name_to_id: HashMap::new(),
-            project_id_to_index: HashMap::new(),
-            all_projects: Vec::new(),
+            project_id_to_project: HashMap::new(),
         }
     }
 
@@ -97,9 +93,7 @@ impl BotCache {
         Self::get_or_refresh(
             cache_lock,
             |c| {
-                c.user_id_to_index
-                    .get(&user_id)
-                    .and_then(|&idx| c.all_members.get(idx).cloned())
+                c.user_id_to_notion_member.get(&user_id).cloned()
             },
             || Self::refresh_about_member(cache_lock),
             &format!("유저 ID {}", user_id),
@@ -129,9 +123,7 @@ impl BotCache {
         Self::get_or_refresh(
             cache_lock,
             |c| {
-                c.project_id_to_index
-                    .get(project_id)
-                    .and_then(|&idx| c.all_projects.get(idx).cloned())
+                c.project_id_to_project.get(project_id).cloned()
             },
             || Self::refresh_about_project(cache_lock),
             &format!("프로젝트 ID '{}'", project_id),
@@ -159,20 +151,17 @@ impl BotCache {
 
         // 기존 매핑 초기화
         cache.project_name_to_id.clear();
-        cache.project_id_to_index.clear();
+        cache.project_id_to_project.clear();
 
-        // 프로젝트 이름과 ID를 키로 사용하여 인덱스를 매핑
-        for (index, project) in projects.iter().enumerate() {
+        // 모든 프로젝트를 캐시에 저장
+        for project in projects.iter() {
             cache
                 .project_name_to_id
                 .insert(project.name.clone(), project.id.clone());
-            cache.project_id_to_index.insert(project.id.clone(), index);
+            cache.project_id_to_project.insert(project.id.clone(), project.clone());
 
             // println!("{:?} 프로젝트 캐시 갱신 완료", project);
         }
-
-        // 모든 프로젝트를 캐시에 저장
-        cache.all_projects = projects;
 
         Ok(())
     }
@@ -194,12 +183,12 @@ impl BotCache {
         let mut cache = cache_lock.write().await;
 
         // 기존 매핑 초기화
-        cache.user_id_to_index.clear();
+        cache.user_id_to_notion_member.clear();
 
         // 유저 아이디와 인덱스를 매핑
-        for (index, member) in members.iter().enumerate() {
+        for member in members.iter() {
             if let Some(user_id) = convert_string_to_discord_id(&member.discord_id) {
-                cache.user_id_to_index.insert(user_id, index);
+                cache.user_id_to_notion_member.insert(user_id, member.clone());
             } else {
                 error!(
                     "멤버 {}의 Discord ID 변환에 실패했습니다: {}",
@@ -208,17 +197,14 @@ impl BotCache {
             }
         }
 
-        // 모든 멤버를 캐시에 저장
-        cache.all_members = members;
-
         Ok(())
     }
 
-    // pub async fn get_all_projects(cache_lock: &Arc<RwLock<BotCache>>) -> Vec<Project> {
-    //     cache_lock.read().await.all_projects.clone()
-    // }
+    pub async fn get_all_projects(cache_lock: &Arc<RwLock<BotCache>>) -> Vec<Project> {
+        cache_lock.read().await.project_id_to_project.values().cloned().collect()
+    }
 
     // pub async fn get_all_members(cache_lock: &Arc<RwLock<BotCache>>) -> Vec<NotionMember> {
-    //     cache_lock.read().await.all_members.clone()
+    //     cache_lock.read().await.user_id_to_notion_member.values().cloned().collect()
     // }
 }
