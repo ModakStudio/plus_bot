@@ -34,7 +34,7 @@ pub struct BotCache {
     pub user_id_to_notion_member: HashMap<UserId, NotionMember>,
 
     pub project_name_to_id: HashMap<String, String>, // 프로젝트 이름 -> 프로젝트 노션 아이디
-    pub project_id_to_project: HashMap<String, Project>, // 프로젝트 노션 아이디 -> all_projects 인덱스
+    pub project_id_to_project: HashMap<String, Project>, // 프로젝트 노션 아이디 -> 프로젝트 정보
 }
 
 impl BotCache {
