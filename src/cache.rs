@@ -12,31 +12,16 @@ use serenity::all::UserId;
 use serenity::gateway::ShardManager;
 use serenity::prelude::TypeMapKey;
 
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 use crate::commands::utils::convert_string_to_discord_id;
 use crate::integration::notion::{member::*, project::*};
-
-// 캐시 스레드가 처리할 명령 목록
-#[derive(Debug)]
-// pub enum CacheCommand {
-//     RefreshAll,     // 모든 캐시를 갱신
-//     RefreshProject, // 프로젝트 캐시만 갱신
-//     RefreshMember,  // 멤버 캐시만 갱신
-//     // UpdateSingleMember { user_id: UserId, display_name: String },
-// }
 
 pub struct SharedCacheKey;
 
 impl TypeMapKey for SharedCacheKey {
     type Value = Arc<RwLock<BotCache>>;
 }
-
-// 💡 봇 전체에서 "캐시 갱신 신호"를 보낼 수 있도록 Sender를 전역 키로 등록합니다.
-// pub struct CacheNotifyKey;
-// impl TypeMapKey for CacheNotifyKey {
-//     type Value = mpsc::Sender<CacheCommand>;
-// }
 
 pub struct ShardManagerContainer;
 impl TypeMapKey for ShardManagerContainer {
@@ -159,11 +144,9 @@ impl BotCache {
         cache_lock: &Arc<RwLock<BotCache>>,
         project_name: &str,
     ) -> Option<Project> {
-        if let Some(project_id) = Self::get_project_id_by_name(cache_lock, project_name).await {
-            Self::get_project_by_id(cache_lock, &project_id).await
-        } else {
-            None
-        }
+        let project_id = Self::get_project_id_by_name(cache_lock, project_name).await?;
+
+        Self::get_project_by_id(cache_lock, &project_id).await
     }
 
     // 프로젝트 관련 캐시 갱신
@@ -239,48 +222,3 @@ impl BotCache {
     //     cache_lock.read().await.all_members.clone()
     // }
 }
-
-// // 쓰레드 구성
-// pub fn start_cache_thread(
-//     cache: Arc<RwLock<BotCache>>,
-//     _http: Arc<Http>,
-//     _guild_id: GuildId,
-// ) -> mpsc::Sender<CacheCommand> {
-//     // 버퍼 크기가 32인 비동기 채널 생성(가동신호 수신용)
-//     let (tx, mut rx) = mpsc::channel::<CacheCommand>(32);
-
-//     tokio::spawn(async move {
-//         info!("백그라운드 동기화 스레드 가동");
-
-//         while let Some(command) = rx.recv().await {
-//             match command {
-//                 CacheCommand::RefreshAll => {
-//                     info!("[캐시] 전체 캐시 즉시 동기화 요청 처리 중...");
-
-//                     BotCache::refresh_about_project(&cache).await;
-//                     BotCache::refresh_about_member(&cache).await;
-
-//                     info!("[캐시] 전체 캐시 즉시 동기화 완료");
-//                 }
-//                 CacheCommand::RefreshProject => {
-//                     info!("[캐시] 프로젝트 캐시 즉시 동기화 요청 처리 중...");
-
-//                     BotCache::refresh_about_project(&cache).await;
-
-//                     info!("[캐시] 프로젝트 캐시 즉시 동기화 완료");
-//                 }
-//                 CacheCommand::RefreshMember => {
-//                     info!("[캐시] 멤버 캐시 즉시 동기화 요청 처리 중...");
-
-//                     BotCache::refresh_about_member(&cache).await;
-
-//                     info!("[캐시] 멤버 캐시 즉시 동기화 완료");
-//                 }
-//             }
-//         }
-//         // 만약 봇이 꺼지거나 tx를 가진 곳이 전부 드롭되면 루프 종료.
-//         info!("백그라운드 동기화 스레드 종료");
-//     });
-
-//     tx
-// }

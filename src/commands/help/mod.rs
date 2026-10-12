@@ -1,16 +1,12 @@
+pub mod register_command;
+
 use serenity::all::{
-    CommandInteraction, CommandOptionType, CreateCommand, CreateEmbed, CreateEmbedFooter, GuildId,
+    CommandInteraction, CommandOptionType, CreateEmbed, CreateEmbedFooter, GuildId,
 };
 use serenity::builder::EditInteractionResponse;
 use serenity::prelude::*;
 
 use std::fmt::Write;
-
-pub fn register_help_command() -> CreateCommand {
-    CreateCommand::new("help")
-        .description("봇의 모든 명령어와 사용법을 안내합니다.")
-        .dm_permission(false)
-}
 
 pub async fn run_help_command(
     ctx: &Context,

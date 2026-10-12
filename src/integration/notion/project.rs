@@ -252,7 +252,7 @@ pub async fn update_project(
                     Status::Maintenance => "유지보수",
                     Status::Completed => "완료",
                 } } },
-                "github": { "url": project.github },
+                // "github": { "url": project.github },
                 "PM": { "people": [{ "id": project.pm.id }] },
                 "participants": { "people": project.participants.iter().map(|p| serde_json::json!({ "id": p.id })).collect::<Vec<_>>() },
                 "category_id": { "rich_text": [{ "text": { "content": project.category_id } }] }
