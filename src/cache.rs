@@ -92,9 +92,7 @@ impl BotCache {
     ) -> Option<NotionMember> {
         Self::get_or_refresh(
             cache_lock,
-            |c| {
-                c.user_id_to_notion_member.get(&user_id).cloned()
-            },
+            |c| c.user_id_to_notion_member.get(&user_id).cloned(),
             || Self::refresh_about_member(cache_lock),
             &format!("유저 ID {}", user_id),
         )
@@ -122,9 +120,7 @@ impl BotCache {
     ) -> Option<Project> {
         Self::get_or_refresh(
             cache_lock,
-            |c| {
-                c.project_id_to_project.get(project_id).cloned()
-            },
+            |c| c.project_id_to_project.get(project_id).cloned(),
             || Self::refresh_about_project(cache_lock),
             &format!("프로젝트 ID '{}'", project_id),
         )
@@ -158,7 +154,9 @@ impl BotCache {
             cache
                 .project_name_to_id
                 .insert(project.name.clone(), project.id.clone());
-            cache.project_id_to_project.insert(project.id.clone(), project.clone());
+            cache
+                .project_id_to_project
+                .insert(project.id.clone(), project.clone());
 
             // println!("{:?} 프로젝트 캐시 갱신 완료", project);
         }
@@ -188,7 +186,9 @@ impl BotCache {
         // 유저 아이디와 인덱스를 매핑
         for member in members.iter() {
             if let Some(user_id) = convert_string_to_discord_id(&member.discord_id) {
-                cache.user_id_to_notion_member.insert(user_id, member.clone());
+                cache
+                    .user_id_to_notion_member
+                    .insert(user_id, member.clone());
             } else {
                 error!(
                     "멤버 {}의 Discord ID 변환에 실패했습니다: {}",
@@ -201,7 +201,13 @@ impl BotCache {
     }
 
     pub async fn get_all_projects(cache_lock: &Arc<RwLock<BotCache>>) -> Vec<Project> {
-        cache_lock.read().await.project_id_to_project.values().cloned().collect()
+        cache_lock
+            .read()
+            .await
+            .project_id_to_project
+            .values()
+            .cloned()
+            .collect()
     }
 
     // pub async fn get_all_members(cache_lock: &Arc<RwLock<BotCache>>) -> Vec<NotionMember> {

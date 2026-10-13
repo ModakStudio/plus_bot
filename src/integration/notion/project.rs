@@ -16,6 +16,26 @@ pub enum Status {
     Completed,   // 완료
 }
 
+impl Status {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Status::NotStarted => "⚪ 시작 전",
+            Status::InProgress => "🔵 진행 중",
+            Status::Maintenance => "🟣 유지보수",
+            Status::Completed => "🟢 완료",
+        }
+    }
+
+    pub fn color(&self) -> u32 {
+        match self {
+            Status::NotStarted => 0x686762,  // Gray
+            Status::InProgress => 0x3661A6,  // Blue
+            Status::Maintenance => 0x6A468C, // Purple
+            Status::Completed => 0x4B7D56,   // Green
+        }
+    }
+}
+
 impl From<&str> for Status {
     fn from(value: &str) -> Self {
         match value {

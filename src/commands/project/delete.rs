@@ -69,6 +69,9 @@ pub async fn delete_project(
         }
     }
 
+    // 5. 캐시 갱신
+    let _ = BotCache::refresh_about_project(&cache_lock).await;
+
     Ok(())
 }
 

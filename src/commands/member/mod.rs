@@ -6,12 +6,14 @@ pub mod util;
 
 use tracing::{error, info};
 
-use serenity::all::*;
+use serenity::all::{ChannelId, CommandInteraction, Context};
 use serenity::builder::EditInteractionResponse;
 
 use crate::cache::*;
 use crate::commands::utils::*;
 use crate::integration::notion::project::update_project;
+
+use crate::refresh_memlist::sync_member_embed_internal;
 
 use add::member_add;
 use list::member_list;
@@ -44,6 +46,8 @@ pub async fn run_member_command(
         .get::<crate::cache::SharedCacheKey>()
         .expect("보관함에 캐시가 없습니다.")
         .clone();
+
+    let _ = BotCache::refresh_about_project(&cache_lock).await;
 
     // 필요한 컨텍스트를 구조체로 묶기
     let channel_manager = ChannelManager {
@@ -164,6 +168,28 @@ async fn handle_member_command(
                     return Ok(());
                 }
             }
+
+            if let Err(e) =
+                sync_member_embed_internal(&ctx, channel_manager.guild_id, category_id, &my_project)
+                    .await
+            {
+                error!("UI 즉시 업데이트 실패: {:?}", e);
+            }
+
+            let action_text = if subcommand_name == "add" {
+                "추가"
+            } else {
+                "삭제"
+            };
+            command
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(format!(
+                        "✅ 멤버 {}가 성공적으로 반영되었습니다!",
+                        action_text
+                    )),
+                )
+                .await?;
 
             // Notion API를 통해 프로젝트 정보 업데이트
             match update_project(&my_project.id, &my_project).await {
