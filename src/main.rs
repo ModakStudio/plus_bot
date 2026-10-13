@@ -1,7 +1,7 @@
 mod cache;
 mod commands; // 봇이 관리할 캐시 모듈 등록
 mod integration;
-mod refresh_memlist;
+mod refresh_proj_embed;
 
 use std::env;
 use std::sync::Arc;
@@ -16,7 +16,7 @@ use serenity::prelude::*;
 use tracing::{error, info};
 
 use crate::cache::*;
-use crate::refresh_memlist::*;
+use crate::refresh_proj_embed::*;
 
 struct Handler {
     guild_id: GuildId,
@@ -34,6 +34,7 @@ impl EventHandler for Handler {
             commands::help::register_command::register_help_command(),
             commands::project::register_command::register_project_command(),
             commands::member::register_command::register_member_command(),
+            commands::refresh::register_command::register_refresh_command(),
         ];
 
         if let Err(why) = guild_id.set_commands(&ctx.http, commands_list).await {
@@ -92,6 +93,11 @@ impl EventHandler for Handler {
                 }
                 "member" => {
                     if let Err(why) = commands::member::run_member_command(&ctx, &command).await {
+                        error!("커맨드 실행 오류: {:?}", why);
+                    }
+                }
+                "refresh" => {
+                    if let Err(why) = commands::refresh::run_refresh_command(&ctx, &command).await {
                         error!("커맨드 실행 오류: {:?}", why);
                     }
                 }

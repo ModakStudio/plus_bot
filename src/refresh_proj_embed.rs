@@ -77,6 +77,32 @@ pub async fn sync_member_embed_internal(
     Ok(())
 }
 
+pub async fn update_all_project_embeds(
+    ctx: &Context,
+    guild_id: GuildId,
+    projects: Vec<Project>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    for project in projects {
+        let category_id = match project.category_id.parse::<u64>() {
+            Ok(id) => ChannelId::new(id),
+            Err(_) => {
+                error!(
+                    "프로젝트 '{}'의 카테고리 ID '{}'를 파싱할 수 없습니다.",
+                    project.name, project.category_id
+                );
+                continue;
+            }
+        };
+
+        // 이전에 만들었던 내부 처리 함수(sync_member_embed_internal)를 직접 호출
+        if let Err(e) = sync_member_embed_internal(&ctx, guild_id, category_id, &project).await {
+            error!("❌ 카테고리 {} 갱신 실패: {:?}", category_id, e);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn build_project_embed(project: &Project) -> CreateEmbed {
     // 1. GitHub 링크 텍스트 포맷팅 (URL이 있으면 마크다운 링크, 없으면 텍스트)
     let github_value = if project.github.trim().is_empty() {
@@ -104,11 +130,10 @@ pub fn build_project_embed(project: &Project) -> CreateEmbed {
     CreateEmbed::new()
         .title(format!("📁 {}", project.name))
         .color(project.status.color())
-       .field("", "", false) // 빈 필드로 줄바꿈
-       
-        // 1열: 상태 (inline)
+        .field("", "", false) // 빈 필드로 줄바꿈
+
+        // 1열: 상태, GitHub (inline)
         .field("상태", project.status.display_name(), true)
-        // 2열: GitHub (inline)
         .field("GitHub", github_value, true)
         .field("", "", false) // 빈 필드로 줄바꿈
 
@@ -118,34 +143,7 @@ pub fn build_project_embed(project: &Project) -> CreateEmbed {
 
         // 전체 너비: 참여 멤버 (inline: false)
         .field("👥 참여 멤버", participants_value, false)
-
-        .footer(
-            CreateEmbedFooter::new("※ 이 임베드는 자동으로 갱신됩니다.")
-        )
+        
+        .footer(CreateEmbedFooter::new("※ 이 임베드는 자동으로 갱신됩니다."))
 }
 
-pub async fn update_all_project_embeds(
-    ctx: &Context,
-    guild_id: GuildId,
-    projects: Vec<Project>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    for project in projects {
-        let category_id = match project.category_id.parse::<u64>() {
-            Ok(id) => ChannelId::new(id),
-            Err(_) => {
-                error!(
-                    "프로젝트 '{}'의 카테고리 ID '{}'를 파싱할 수 없습니다.",
-                    project.name, project.category_id
-                );
-                continue;
-            }
-        };
-
-        // 이전에 만들었던 내부 처리 함수(sync_member_embed_internal)를 직접 호출
-        if let Err(e) = sync_member_embed_internal(&ctx, guild_id, category_id, &project).await {
-            error!("❌ 카테고리 {} 갱신 실패: {:?}", category_id, e);
-        }
-    }
-
-    Ok(())
-}

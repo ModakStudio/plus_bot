@@ -13,7 +13,7 @@ use crate::cache::*;
 use crate::commands::utils::*;
 use crate::integration::notion::project::update_project;
 
-use crate::refresh_memlist::sync_member_embed_internal;
+use crate::refresh_proj_embed::sync_member_embed_internal;
 
 use add::member_add;
 use list::member_list;
@@ -46,8 +46,6 @@ pub async fn run_member_command(
         .get::<crate::cache::SharedCacheKey>()
         .expect("보관함에 캐시가 없습니다.")
         .clone();
-
-    let _ = BotCache::refresh_about_project(&cache_lock).await;
 
     // 필요한 컨텍스트를 구조체로 묶기
     let channel_manager = ChannelManager {
@@ -169,6 +167,9 @@ async fn handle_member_command(
                 }
             }
 
+            // 캐시에 프로젝트 정보 업데이트
+            let _ = BotCache::update_project_in_cache(cache_lock, &my_project).await;
+
             if let Err(e) =
                 sync_member_embed_internal(&ctx, channel_manager.guild_id, category_id, &my_project)
                     .await
@@ -176,11 +177,9 @@ async fn handle_member_command(
                 error!("UI 즉시 업데이트 실패: {:?}", e);
             }
 
-            let action_text = if subcommand_name == "add" {
-                "추가"
-            } else {
-                "삭제"
-            };
+            #[rustfmt::skip]
+            let action_text = if subcommand_name == "add" { "추가" } else { "삭제" };
+
             command
                 .edit_response(
                     &ctx.http,
@@ -192,29 +191,15 @@ async fn handle_member_command(
                 .await?;
 
             // Notion API를 통해 프로젝트 정보 업데이트
-            match update_project(&my_project.id, &my_project).await {
-                Ok(_) => info!(
-                    "프로젝트 '{}' 정보가 성공적으로 업데이트되었습니다.",
-                    my_project.name
-                ),
-                Err(why) => {
-                    error!(
-                        "프로젝트 '{}' 정보 업데이트 실패: {:?}",
-                        my_project.name, why
-                    );
-
-                    return Ok(());
+            let my_project_for_notion = my_project.clone();
+            tokio::spawn(async move {
+                // 이미 캐시는 업데이트되었으므로 노션에 밀어넣기만 하면 끝
+                if let Err(why) = update_project(&my_project_for_notion.id, &my_project_for_notion).await {
+                    error!("백그라운드 노션 업데이트 실패: {:?}", why);
+                } else {
+                    info!("백그라운드 노션 업데이트 완료");
                 }
-            }
-
-            // 캐시 갱신
-            match BotCache::refresh_about_project(cache_lock).await {
-                Ok(_) => info!("프로젝트 캐시 갱신 완료."),
-                Err(why) => {
-                    error!("프로젝트 캐시 갱신 실패: {:?}", why);
-                    return Ok(());
-                }
-            }
+            });
         }
         _ => {}
     }

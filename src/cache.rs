@@ -5,6 +5,7 @@ cache.rs
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use tracing::{error, info};
 
@@ -35,6 +36,8 @@ pub struct BotCache {
 
     pub project_name_to_id: HashMap<String, String>, // 프로젝트 이름 -> 프로젝트 노션 아이디
     pub project_id_to_project: HashMap<String, Project>, // 프로젝트 노션 아이디 -> 프로젝트 정보
+
+    pub last_refresh_time: Option<Instant>, // 마지막 갱신 시간
 }
 
 impl BotCache {
@@ -44,6 +47,8 @@ impl BotCache {
 
             project_name_to_id: HashMap::new(),
             project_id_to_project: HashMap::new(),
+
+            last_refresh_time: None,
         }
     }
 
@@ -185,6 +190,10 @@ impl BotCache {
 
         // 유저 아이디와 인덱스를 매핑
         for member in members.iter() {
+            if member.name == "" {
+                continue;
+            }
+
             if let Some(user_id) = convert_string_to_discord_id(&member.discord_id) {
                 cache
                     .user_id_to_notion_member
@@ -196,6 +205,23 @@ impl BotCache {
                 );
             }
         }
+
+        Ok(())
+    }
+
+    pub async fn update_project_in_cache(
+        cache_lock: &Arc<RwLock<BotCache>>,
+        project: &Project,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut cache = cache_lock.write().await;
+
+        // 프로젝트 이름과 ID 매핑 업데이트
+        cache
+            .project_name_to_id
+            .insert(project.name.clone(), project.id.clone());
+        cache
+            .project_id_to_project
+            .insert(project.id.clone(), project.clone());
 
         Ok(())
     }
