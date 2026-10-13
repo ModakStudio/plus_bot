@@ -281,7 +281,7 @@ pub async fn update_project(
         .send()
         .await?;
 
-    println!("{:?}", project);
+    // println!("{:?}", project);
 
     if response.status().is_success() {
         Ok(())

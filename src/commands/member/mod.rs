@@ -194,7 +194,9 @@ async fn handle_member_command(
             let my_project_for_notion = my_project.clone();
             tokio::spawn(async move {
                 // 이미 캐시는 업데이트되었으므로 노션에 밀어넣기만 하면 끝
-                if let Err(why) = update_project(&my_project_for_notion.id, &my_project_for_notion).await {
+                if let Err(why) =
+                    update_project(&my_project_for_notion.id, &my_project_for_notion).await
+                {
                     error!("백그라운드 노션 업데이트 실패: {:?}", why);
                 } else {
                     info!("백그라운드 노션 업데이트 완료");
