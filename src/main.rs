@@ -1,6 +1,7 @@
 mod cache;
 mod commands; // 봇이 관리할 캐시 모듈 등록
 mod integration;
+mod refresh_proj_embed;
 
 use std::env;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use serenity::prelude::*;
 use tracing::{error, info};
 
 use crate::cache::*;
+use crate::refresh_proj_embed::*;
 
 struct Handler {
     guild_id: GuildId,
@@ -32,6 +34,7 @@ impl EventHandler for Handler {
             commands::help::register_command::register_help_command(),
             commands::project::register_command::register_project_command(),
             commands::member::register_command::register_member_command(),
+            commands::refresh::register_command::register_refresh_command(),
         ];
 
         if let Err(why) = guild_id.set_commands(&ctx.http, commands_list).await {
@@ -39,6 +42,37 @@ impl EventHandler for Handler {
         } else {
             info!("슬래시 커맨드 등록 성공!");
         }
+
+        // TypeMap에서 캐시 락 가져오기
+        let cache_lock = {
+            let data_read = ctx.data.read().await;
+            data_read
+                .get::<crate::cache::SharedCacheKey>()
+                .expect("Expected SharedCacheKey in TypeMap")
+                .clone()
+        };
+
+        let ctx_clone = ctx.clone();
+
+        tokio::spawn(async move {
+            info!("🔄 [초기화] 백그라운드 노션 데이터 동기화 시작...");
+
+            // 1. 봇이 켜졌으므로 캐시가 비어있습니다. 노션에서 최신 데이터를 무조건 1회 긁어옵니다.
+            let _ = BotCache::refresh_about_project(&cache_lock).await;
+            let _ = BotCache::refresh_about_member(&cache_lock).await;
+
+            // 2. 갱신된 캐시에서 프로젝트 목록 읽기
+            let projects = BotCache::get_all_projects(&cache_lock).await;
+            info!(
+                "✅ 캐시 초기화 완료. 관리 대상 프로젝트 수: {}",
+                projects.len()
+            );
+
+            // 3. 모든 프로젝트 카테고리의 UI 갱신
+            let _ = update_all_project_embeds(&ctx_clone, guild_id, projects).await;
+
+            info!("🎉 [초기화] 모든 카테고리 UI 업데이트 완료!");
+        });
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -62,6 +96,11 @@ impl EventHandler for Handler {
                         error!("커맨드 실행 오류: {:?}", why);
                     }
                 }
+                "refresh" => {
+                    if let Err(why) = commands::refresh::run_refresh_command(&ctx, &command).await {
+                        error!("커맨드 실행 오류: {:?}", why);
+                    }
+                }
                 _ => info!("알 수 없는 커맨드: {}", command.data.name),
             }
         }
@@ -75,7 +114,8 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     // 현재 작업 중인 CWD에 대한 상대 경로로 .env 파일에서 환경 변수 로드
-    dotenv::dotenv().expect("Failed to load .env file");
+    // dotenv::dotenv().expect("Failed to load .env file");
+    let _ = dotenv::dotenv();
 
     // 로거 초기화
     tracing_subscriber::fmt::init();
