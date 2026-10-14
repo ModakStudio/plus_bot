@@ -55,7 +55,7 @@ pub async fn run_refresh_command(
         let mut cache = cache_lock.write().await;
 
         // 마지막 갱신 시간 업데이트
-        cache.last_refresh_time = Some(std::time::Instant::now()); 
+        cache.last_refresh_time = Some(std::time::Instant::now());
 
         // 프로젝트 목록 가져오기
         projects = cache.project_id_to_project.values().cloned().collect();

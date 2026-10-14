@@ -170,9 +170,15 @@ async fn handle_member_command(
             // 캐시에 프로젝트 정보 업데이트
             let _ = BotCache::update_project_in_cache(cache_lock, &my_project).await;
 
-            if let Err(e) =
-                sync_member_embed_internal(&ctx, channel_manager.guild_id, category_id, &my_project)
-                    .await
+            let channels = channel_manager.guild_id.channels(&ctx.http).await?;
+            if let Err(e) = sync_member_embed_internal(
+                &ctx,
+                channel_manager.guild_id,
+                category_id,
+                &channels,
+                &my_project,
+            )
+            .await
             {
                 error!("UI 즉시 업데이트 실패: {:?}", e);
             }

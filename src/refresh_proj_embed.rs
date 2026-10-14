@@ -2,6 +2,9 @@ use serenity::all::{
     ChannelId, ChannelType, Context, CreateChannel, CreateEmbed, CreateEmbedFooter, CreateMessage,
     EditMessage, GuildId,
 };
+use serenity::model::channel::GuildChannel;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use tracing::error;
 
@@ -12,13 +15,13 @@ pub async fn sync_member_embed_internal(
     ctx: &Context,
     guild_id: GuildId,
     category_id: ChannelId, // 프로젝트 카테고리 채널 ID
+    channels: &HashMap<ChannelId, GuildChannel>,
     project: &Project,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 임베드 내용 구성
     let embed = build_project_embed(project);
 
     // 대상 채널 탐색 또는 생성
-    let channels = guild_id.channels(&ctx.http).await?;
     let target_channel_name = "📜information";
 
     let mut target_channel_id = None;
@@ -83,9 +86,13 @@ pub async fn update_all_project_embeds(
     guild_id: GuildId,
     projects: Vec<Project>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let channels = Arc::new(guild_id.channels(&ctx.http).await?);
+    let mut handles = Vec::with_capacity(projects.len());
+
     for project in projects {
         let ctx_clone = ctx.clone();
-        tokio::spawn(async move {
+        let channels_ref = Arc::clone(&channels);
+        let handle = tokio::spawn(async move {
             let category_id = match project.category_id.parse::<u64>() {
                 Ok(id) => ChannelId::new(id),
                 Err(_) => {
@@ -98,10 +105,23 @@ pub async fn update_all_project_embeds(
             };
 
             // 이전에 만들었던 내부 처리 함수(sync_member_embed_internal)를 직접 호출
-            if let Err(e) = sync_member_embed_internal(&ctx_clone, guild_id, category_id, &project).await {
+            if let Err(e) = sync_member_embed_internal(
+                &ctx_clone,
+                guild_id,
+                category_id,
+                &channels_ref,
+                &project,
+            )
+            .await
+            {
                 error!("❌ 카테고리 {} 갱신 실패: {:?}", category_id, e);
             }
-        }).await?; 
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await?;
     }
 
     Ok(())
