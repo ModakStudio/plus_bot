@@ -1,0 +1,7 @@
+services:
+  plus_bot:
+    build: .
+    container_name: plus_bot
+    restart: unless-stopped # 봇이 패닉으로 죽거나 서버가 재부팅되어도 자동 재시작
+    env_file:
+      - .env # 로컬의 .env 파일 내용을 컨테이너 환경 변수로 자동 주입

@@ -114,7 +114,8 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     // 현재 작업 중인 CWD에 대한 상대 경로로 .env 파일에서 환경 변수 로드
-    dotenv::dotenv().expect("Failed to load .env file");
+    // dotenv::dotenv().expect("Failed to load .env file");
+    let _ = dotenv::dotenv();
 
     // 로거 초기화
     tracing_subscriber::fmt::init();
